@@ -224,7 +224,6 @@ function App() {
 // ================== جلب البيانات ==================
 const fetchQuestion = async (letter) => {
   try {
-    // السطر الجديد بعد التعديل:
     const response = await fetch(`https://huroof-api.onrender.com/api/question`, { 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -364,7 +363,6 @@ const fetchQuestion = async (letter) => {
     gridRows.push(row);
   }
 
-  // ================== الإحصائيات الحية ==================
   const totalCellsCount = gridSize * gridSize;
   const t1CellsCount = cells.filter(c => c === 1).length;
   const t2CellsCount = cells.filter(c => c === 2).length;
@@ -488,21 +486,60 @@ const fetchQuestion = async (letter) => {
         box-shadow: inset 0 5px 20px rgba(0,0,0,0.5);
     }
     
+    /* --- التعديلات السحرية لجميع الشاشات (آيباد/تابلت/جوال) --- */
+    @media (max-width: 1024px) {
+        .app-container { padding: 15px !important; }
+        h1 { font-size: 3rem !important; }
+        .esport-panel { padding: 20px !important; }
+    }
+
     @media (max-width: 768px) {
+        h1 { font-size: 2rem !important; }
+        
+        div[style*="justify-content: space-between"] {
+            flex-direction: column !important;
+            align-items: center !important;
+            gap: 15px !important;
+        }
+
+        .esport-panel { 
+            width: 100% !important; 
+            min-width: unset !important; 
+            padding: 15px !important; 
+        }
+
+        div[style*="font-size: 4.5rem"] { font-size: 2.5rem !important; }
+        div[style*="font-size: 1.6rem"] { font-size: 1.2rem !important; }
+
+        .hex-container { 
+            padding: 40px 10px !important; 
+            transform: scale(0.95);
+        }
+
+        .glass-panel {
+            width: 95% !important;
+            padding: 25px 15px !important;
+        }
+        
+        .glass-panel h2 { font-size: 1.8rem !important; }
+        
         .command-center {
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr !important;
             text-align: center;
+            gap: 20px !important;
+            padding: 15px !important;
         }
         .command-center > div {
             justify-content: center !important;
             text-align: center !important;
         }
+        
         .live-stats {
             flex-direction: column !important;
             gap: 20px !important;
         }
         .live-stats .actions { order: 2; width: 100%; justify-content: space-between; }
-        .live-stats .bars { order: 1; width: 100%; }
+        .live-stats .bars { order: 1; width: 100%; margin: 10px 0 !important; }
         .live-stats .remaining { order: 3; }
     }
 
@@ -628,7 +665,7 @@ const fetchQuestion = async (letter) => {
       </button>
 
       {/* Header HUD - E-Sports Style */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', maxWidth: '1800px', margin: '0 auto 40px auto', width: '100%', zIndex: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '20px', maxWidth: '1800px', margin: '0 auto 40px auto', width: '100%', zIndex: 10 }}>
         
         {/* Team 1 Scoreboard */}
         <div className="esport-panel" style={{ display: 'flex', alignItems: 'center', gap: '25px', padding: '20px 40px', minWidth: '320px', borderRight: `6px solid ${team1Color}` }}>
@@ -664,7 +701,7 @@ const fetchQuestion = async (letter) => {
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, position: 'relative', zIndex: 10, paddingBottom: '120px' }}>
         <div className="hex-container" style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          '--hex-w': `clamp(45px, calc(60vw / ${gridSize}), 110px)`, 
+          '--hex-w': `clamp(35px, calc(90vw / ${gridSize + 1}), 100px)`, 
           '--hex-h': 'calc(var(--hex-w) * 1.1547)', 
           '--hex-gap': 'calc(var(--hex-w) * 0.08)', 
           '--hex-border': '3px', 
@@ -709,7 +746,7 @@ const fetchQuestion = async (letter) => {
         </div>
       </div>
 
-      {/* الميزة الحصرية: الإحصائيات الحية (Live Stats Bar) - تم حل مشكلة الأزرار برفع الزي-إندكس */}
+      {/* الميزة الحصرية: الإحصائيات الحية (Live Stats Bar) */}
       <div className="esport-panel live-stats" style={{ position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '1400px', padding: '15px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1000, borderRadius: '20px' }}>
           <div className="actions" style={{ display: 'flex', gap: '15px' }}>
             <button onClick={() => {AudioEngine.play('click'); setCells(Array(gridSize*gridSize).fill(0)); setTeam1Score(0); setTeam2Score(0);}} className="pulse-btn" style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.1)' }}>تصفير الساحة</button>
@@ -730,7 +767,7 @@ const fetchQuestion = async (letter) => {
           </div>
       </div>
 
-      {/* The Command Center (Question Modal) - FIXED GRID */}
+      {/* The Command Center (Question Modal) */}
       {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(2, 2, 4, 0.96)', backdropFilter: 'blur(20px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
           
@@ -763,7 +800,7 @@ const fetchQuestion = async (letter) => {
               </div>
             )}
             
-            {/* Command Center - Lifelines & Timer (FIXED CSS GRID) */}
+            {/* Command Center - Lifelines & Timer */}
             <div className="command-center">
                 
                 {/* Team 1 Controls */}
