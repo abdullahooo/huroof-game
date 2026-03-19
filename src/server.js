@@ -1,51 +1,82 @@
 import express from 'express';
 import cors from 'cors';
-import pg from 'pg';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const { Client } = pg;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-
 app.use(cors());
-app.use(express.json()); // مهم جداً عشان نستقبل البيانات من اللعبة
+app.use(express.json());
 
-const DATABASE_URL = process.env.DATABASE_URL;
-const client = new Client({
-  connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+// 1. تحميل الأسئلة من الملف الموحد
+let allQuestions = [];
+const filePath = path.join(__dirname, 'questions_with_difficulty.csv');
 
-client.connect()
-  .then(() => console.log("🟢 تم الشبك مع قاعدة البيانات بنجاح!"))
-  .catch(err => console.error("أفا، فيه خطأ:", err));
-
-// غيرنا الرابط لـ POST عشان اللعبة تقدر ترسل لنا "الأسئلة المحروقة"
-app.post('/api/question', async (req, res) => {
-  try {
-    const { letter, usedIds } = req.body;
+if (fs.existsSync(filePath)) {
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const lines = fileContent.split('\n').filter(line => line.trim() !== '');
     
-    // كود الفهرسة السريعة: يجيب سؤال عشوائي، ويستثني الأسئلة اللي طلعت قبل
-    const query = `
-      SELECT id, question, answer 
-      FROM questions 
-      WHERE letter = $1 AND id != ALL($2::int[]) 
-      ORDER BY RANDOM() 
-      LIMIT 1
-    `;
-    
-    // نمرر الحرف، ومصفوفة الأرقام المحروقة (إذا كانت فاضية نعطيه مصفوفة فارغة [])
-    const result = await client.query(query, [letter, usedIds || []]);
-
-    if (result.rows.length > 0) {
-      res.json(result.rows[0]); // يرجع السؤال الجديد
-    } else {
-      res.json({ id: null, question: `خلصت كل أسئلة حرف (${letter}) يا بطل!`, answer: "لا يوجد" });
+    // نتخطى السطر الأول (رؤوس الأعمدة) ونقرأ الباقي
+    for (let i = 1; i < lines.length; i++) {
+        // تقسيم السطر بناءً على الفاصلة
+        const parts = lines[i].split(',');
+        if (parts.length >= 4) {
+            allQuestions.push({
+                id: i, // نعطي كل سؤال رقم تعريفي عشان ما يتكرر
+                letter: parts[0].trim(),
+                question: parts[1].trim(),
+                answer: parts[2].trim(),
+                difficulty: parts[3].trim() // سهل، متوسط، صعب
+            });
+        }
     }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "خطأ في السيرفر" });
-  }
+    console.log(`✅ تم تحميل ${allQuestions.length} سؤال بنجاح من الملف المحدث.`);
+} else {
+    console.error("❌ ملف الأسئلة questions_with_difficulty.csv غير موجود في مجلد backend!");
+}
+
+// 2. استقبال طلبات اللعبة من الواجهة
+app.post('/api/question', (req, res) => {
+    const { letter, usedIds = [], difficulty = 'mixed' } = req.body;
+    
+    // فلترة مبدئية حسب الحرف والأسئلة اللي ما طلعت لللاعب من قبل
+    let filtered = allQuestions.filter(q => q.letter === letter && !usedIds.includes(q.id));
+
+    // فلترة حسب الصعوبة (إذا اللاعب ما اختار "مشكل")
+    if (difficulty !== 'mixed') {
+        // نترجم الكلمة اللي جاية من الواجهة للكلمة اللي بالملف
+        const diffMap = {
+            'easy': 'سهل',
+            'medium': 'متوسط',
+            'hard': 'صعب'
+        };
+        const targetDiff = diffMap[difficulty];
+        const diffFiltered = filtered.filter(q => q.difficulty === targetDiff);
+        
+        // نظام ذكي: لو خلصت الأسئلة من الصعوبة المطلوبة، نعطيه من المتوفر عشان ما توقف اللعبة عليه
+        if (diffFiltered.length > 0) {
+            filtered = diffFiltered;
+        }
+    }
+
+    // إذا خلصت كل أسئلة الحرف
+    if (filtered.length === 0) {
+        return res.json({ 
+            id: null,
+            question: `انتهت جميع الأسئلة المتاحة لحرف (${letter}).`, 
+            answer: 'انتهى' 
+        });
+    }
+
+    // سحب سؤال عشوائي من القائمة المفلترة
+    const randomIndex = Math.floor(Math.random() * filtered.length);
+    res.json(filtered[randomIndex]);
 });
 
-app.listen(3000, () => {
-  console.log("🚀 السيرفر الخارق شغال ومستعد لنص مليون سؤال!");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 السيرفر شغال وجاهز لاستقبال التحديات على بورت ${PORT}`);
 });
