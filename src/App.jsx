@@ -125,7 +125,7 @@ function App() {
   const [gridSize, setGridSize] = useState(6); 
   const [maxRounds, setMaxRounds] = useState(1); 
   const [timerDuration, setTimerDuration] = useState(30);
-  
+  const [showSupportModal, setShowSupportModal] = useState(false);
   // 🌟 الميزة الجديدة: حالة الصعوبة
   const [difficulty, setDifficulty] = useState('medium'); 
 
@@ -978,8 +978,125 @@ function App() {
         <div className="ad-sidebar">
             <AdSenseWidget adSlot="2222222222" />
         </div>
-    </div>
-  );
-}
+
+     {/* ================= زر ونافذة الدعم ================= */}
+
+                <button 
+
+                    onClick={() => {AudioEngine.play('click'); setShowSupportModal(true);}}
+
+                    style={{
+
+                        position: 'fixed', bottom: '20px', left: '20px', 
+
+                        background: 'linear-gradient(135deg, #4F008C, #8900E1)', 
+
+                        color: '#fff', padding: '12px 25px', borderRadius: '30px', 
+
+                        fontWeight: '900', fontSize: '1.2rem', border: 'none', 
+
+                        cursor: 'pointer', boxShadow: '0 10px 25px rgba(79, 0, 140, 0.4)', 
+
+                        zIndex: 9000, display: 'flex', alignItems: 'center', gap: '8px',
+
+                        transition: 'transform 0.2s', fontFamily: 'inherit'
+
+                    }}
+
+                    onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+
+                    onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+
+                >
+
+                    ☕ ادعمني
+
+                </button>
+
+
+
+                {showSupportModal && (
+
+                    <div style={{
+
+                        position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
+
+                        background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(15px)', 
+
+                        display: 'flex', justifyContent: 'center', alignItems: 'center', 
+
+                        zIndex: 10000, animation: 'cinematicFade 0.3s ease-out'
+
+                    }} onClick={() => setShowSupportModal(false)}>
+
+                        
+
+                        <div style={{
+
+                            background: 'var(--panel-bg)', border: '1px solid rgba(255,255,255,0.1)',
+
+                            borderRadius: '24px', padding: '40px', maxWidth: '420px', width: '90%',
+
+                            textAlign: 'center', position: 'relative', boxShadow: '0 30px 60px rgba(0,0,0,0.8)',
+
+                            animation: 'popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+
+                        }} onClick={(e) => e.stopPropagation()}>
+
+                            
+
+                            <button onClick={() => {AudioEngine.play('click'); setShowSupportModal(false);}} style={{
+
+                                position: 'absolute', top: '15px', right: '20px', background: 'transparent',
+
+                                border: 'none', color: '#a1a1aa', fontSize: '1.8rem', cursor: 'pointer', transition: '0.2s'
+
+                            }} onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'} onMouseOut={(e) => e.currentTarget.style.color = '#a1a1aa'}>
+
+                                ✖
+
+                            </button>
+
+
+
+                            <h2 style={{ color: '#fff', margin: '0 0 15px 0', fontSize: '2rem', fontWeight: '900' }}>
+
+                                عجبتك اللعبة؟ ☕
+
+                            </h2>
+
+                            <p style={{ color: '#a1a1aa', lineHeight: '1.6', marginBottom: '30px', fontSize: '1.1rem', fontWeight: '600' }}>
+
+                                اللعبة مجانية بالكامل، بس إذا ودك تدعم المطور عشان يستمر يطور ويضيف ميزات أكثر، امسح الكود بتطبيق <span style={{color: '#4F008C', fontWeight: '900', background: '#fff', padding: '2px 8px', borderRadius: '8px', display: 'inline-block', margin: '0 4px'}}>STC Pay</span> 🤍
+
+                            </p>
+
+
+
+                            <div style={{
+
+                                background: '#fff', padding: '20px', borderRadius: '24px', 
+
+                                display: 'inline-block', boxShadow: '0 15px 35px rgba(79, 0, 140, 0.3)'
+
+                            }}>
+
+                                <img src="/stcpay.jpg" alt="STC Pay QR Code" style={{ width: '220px', height: '220px', borderRadius: '12px', display: 'block' }} />
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                )}
+
+                {/* =================================================== */}   </div>
+
+    );
+
+};
+
+
 
 export default App;
