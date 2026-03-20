@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-
+import csvText from './questions_with_difficulty.csv?raw';
 const ALPHABET = ['أ','ب','ت','ث','ج','ح','خ','د','ذ','ر','ز','س','ش','ص','ض','ط','ظ','ع','غ','ف','ق','ك','ل','م','ن','هـ','و','ي'];
 
 const getNeighbors = (index, size) => {
@@ -253,21 +253,72 @@ function App() {
     return false;
   }, [gridSize, victoryCondition]);
 
-  const fetchQuestion = async (letter) => {
+  const fetchQuestion = (letter) => {
     try {
-      const response = await fetch('/api/question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ letter: letter, usedIds: usedQuestionIds, difficulty: difficulty })
-      });
-      
-      const data = await response.json();
-      setCurrentQuestion(data.question);
-      setCurrentAnswer(data.answer);
-      if (data.id) setUsedQuestionIds(prev => [...prev, data.id]);
+      // 1. نقرأ الأسئلة المدمجة في الكود مباشرة
+      const lines = csvText.split(/\r?\n/);
+      let allQuestions = [];
+
+      // 2. تفكيك الأسئلة بطريقة مستحيل تخرب حتى لو السؤال فيه فاصلة
+      for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          const parts = line.split(',');
+          if (parts.length >= 4) {
+              const l = parts[0].replace(/['"]/g, '').trim();
+              const diff = parts[parts.length - 1].replace(/['"]/g, '').trim();
+              const ans = parts[parts.length - 2].replace(/['"]/g, '').trim();
+              // نجمع السؤال لو كان فيه فاصلة بالخطأ
+              const q = parts.slice(1, parts.length - 2).join(',').replace(/['"]/g, '').trim();
+              
+              // تنظيف الحرف من أي رموز مخفية
+              const cleanLetter = l.replace(/^\uFEFF/, '').trim();
+
+              allQuestions.push({
+                  letter: cleanLetter,
+                  question: q,
+                  answer: ans,
+                  difficulty: diff,
+                  id: `q_${i}`
+              });
+          }
+      }
+
+      // 3. مطابقة الصعوبة (الخاصية حقتك شغالة 100%)
+      const diffMap = { 'easy': 'سهل', 'medium': 'متوسط', 'hard': 'صعب', 'mixed': 'mixed' };
+      const targetDiff = diffMap[difficulty] || 'متوسط';
+      const searchLetter = letter.trim();
+
+      // 4. فلترة الأسئلة
+      let availableQuestions = allQuestions.filter(q => 
+          q.letter === searchLetter && !usedQuestionIds.includes(q.id)
+      );
+
+      if (difficulty !== 'mixed') {
+          let diffFiltered = availableQuestions.filter(q => q.difficulty === targetDiff);
+          if (diffFiltered.length > 0) availableQuestions = diffFiltered;
+      }
+
+      // 5. إذا مافيه أسئلة
+      if (availableQuestions.length === 0) {
+          setCurrentQuestion(`لا توجد أسئلة لحرف (${letter}) بصعوبة (${targetDiff})`);
+          setCurrentAnswer("تخطي");
+          return;
+      }
+
+      // 6. عرض السؤال
+      const randomIndex = Math.floor(Math.random() * availableQuestions.length);
+      const selectedQuestion = availableQuestions[randomIndex];
+
+      setCurrentQuestion(selectedQuestion.question);
+      setCurrentAnswer(selectedQuestion.answer);
+      setUsedQuestionIds(prev => [...prev, selectedQuestion.id]);
+
     } catch (error) {
-      console.error("Error fetching question:", error);
-      setCurrentQuestion('فشل الاتصال بقاعدة البيانات.');
+      console.error("Critical Error:", error);
+      setCurrentQuestion('حدث خطأ داخلي في النظام.');
+      setCurrentAnswer('خطأ');
     }
   };
 
