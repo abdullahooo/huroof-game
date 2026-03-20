@@ -854,8 +854,33 @@ function App() {
 
                 {/* The Command Center (Question Modal) */}
                 {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
-                   <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(2, 2, 4, 0.98)', backdropFilter: 'blur(20px)', display: 'flex', justifyContent: 'center', alignItems: isMobile ? 'flex-start' : 'center', zIndex: 9999, overflowY: 'auto', padding: isMobile ? '20px 0' : '0' }}>
-    <div className="glass-panel anim-glitch" style={{ width: isMobile ? '95%' : '100%', maxWidth: '1100px', padding: isMobile ? '25px 15px' : '60px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 40px 100px rgba(0,0,0,0.8)', margin: isMobile ? '20px auto' : '0' }}>
+{activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
+    
+    {/* سطر 620: الحل النووي للنافذة */}
+    <div style={{ 
+        position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
+        background: 'rgba(2, 2, 4, 0.98)', backdropFilter: 'blur(20px)', 
+        // التغيير السحري هنا: نلغي الـ flex بالجوال عشان يرجع السكرول طبيعي
+        display: isMobile ? 'block' : 'flex', 
+        justifyContent: 'center', alignItems: 'center', 
+        zIndex: 9999, 
+        overflowY: 'auto', // إجباري ينزل
+        // حطينا 120 بكسل تحت عشان زر "ادعمني" ما يغطي على أدوات الفريق الثاني
+        padding: isMobile ? '40px 10px 120px 10px' : '0' 
+     }}>
+        
+        <div className="glass-panel anim-glitch" style={{ 
+            width: isMobile ? '100%' : '1100px', 
+            maxWidth: '1100px', 
+            padding: isMobile ? '20px 10px' : '60px', 
+            display: 'flex', flexDirection: 'column', alignItems: 'center', 
+            border: '1px solid rgba(255,255,255,0.08)', 
+            boxShadow: '0 40px 100px rgba(0,0,0,0.8)',
+            // بالجوال نخليه يتوسط بالعرض بس، ويبدأ من فوق بالطول
+            margin: isMobile ? '0 auto' : '0' 
+        }}>
+            
+            {/* ... هنا بيكمل كودك حق تسكيت الفريق والسؤال والتايمر ... */}
                         
                         {/* Silence Banner */}
                         {silencedTeam !== null && (
@@ -905,7 +930,18 @@ function App() {
                         </div>
                         )}
                         
-                        <div className="command-center" style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? '15px' : '30px', justifyContent: 'center', width: '100%', background: 'rgba(0,0,0,0.5)', padding: isMobile ? '15px' : '30px', borderRadius: '28px', border: '1px solid rgba(255,255,255,0.05)', marginTop: isMobile ? '20px' : '0' }}>
+                        <div className="command-center" style={{
+    display: 'flex',
+    flexDirection: isMobile ? 'column' : 'row', // يصفطهم تحت بعض بالجوال 
+    alignItems: 'center',
+    gap: isMobile ? '20px' : '30px',
+    justifyContent: 'center',
+    width: '100%',
+    background: 'rgba(0,0,0,0.5)',
+    padding: isMobile ? '15px' : '30px',
+    borderRadius: '28px',
+    border: '1px solid rgba(255,255,255,0.05)'
+}}>
     {/* أدوات الفريق الأول */}
     <div style={{ textAlign: isMobile ? 'center' : 'right', width: isMobile ? '100%' : 'auto' }}> [cite: 290]
         <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team1Name || 'الفريق الأول'}</div> [cite: 291]
