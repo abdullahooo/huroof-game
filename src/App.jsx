@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import csvText from './questions_with_difficulty.csv?raw';
+
 const ALPHABET = ['أ','ب','ت','ث','ج','ح','خ','د','ذ','ر','ز','س','ش','ص','ض','ط','ظ','ع','غ','ف','ق','ك','ل','م','ن','هـ','و','ي'];
 
 const getNeighbors = (index, size) => {
@@ -253,72 +253,51 @@ function App() {
     return false;
   }, [gridSize, victoryCondition]);
 
-  const fetchQuestion = (letter) => {
+  const fetchQuestion = async (letter) => {
     try {
-      // 1. نقرأ الأسئلة المدمجة في الكود مباشرة
-      const lines = csvText.split(/\r?\n/);
+      const response = await fetch('/questions_with_difficulty.csv?' + Date.now());
+      const text = await response.text();
+      const lines = text.split('\n');
       let allQuestions = [];
 
-      // 2. تفكيك الأسئلة بطريقة مستحيل تخرب حتى لو السؤال فيه فاصلة
-      for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          
+      lines.forEach(line => {
+          if (!line.trim()) return;
           const parts = line.split(',');
           if (parts.length >= 4) {
-              const l = parts[0].replace(/['"]/g, '').trim();
-              const diff = parts[parts.length - 1].replace(/['"]/g, '').trim();
-              const ans = parts[parts.length - 2].replace(/['"]/g, '').trim();
-              // نجمع السؤال لو كان فيه فاصلة بالخطأ
-              const q = parts.slice(1, parts.length - 2).join(',').replace(/['"]/g, '').trim();
-              
-              // تنظيف الحرف من أي رموز مخفية
-              const cleanLetter = l.replace(/^\uFEFF/, '').trim();
-
               allQuestions.push({
-                  letter: cleanLetter,
-                  question: q,
-                  answer: ans,
-                  difficulty: diff,
-                  id: `q_${i}`
+                  letter: parts[0].trim().replace(/^\uFEFF/, ''), 
+                  question: parts[1].trim(),
+                  answer: parts[2].trim(),
+                  difficulty: parts[3].trim(),
+                  id: parts[1].trim() // السؤال نفسه هو الـ ID عشان ما يتكرر
               });
           }
-      }
+      });
 
-      // 3. مطابقة الصعوبة (الخاصية حقتك شغالة 100%)
       const diffMap = { 'easy': 'سهل', 'medium': 'متوسط', 'hard': 'صعب', 'mixed': 'mixed' };
       const targetDiff = diffMap[difficulty] || 'متوسط';
       const searchLetter = letter.trim();
 
-      // 4. فلترة الأسئلة
-      let availableQuestions = allQuestions.filter(q => 
-          q.letter === searchLetter && !usedQuestionIds.includes(q.id)
+      let available = allQuestions.filter(q => 
+          q.letter === searchLetter && 
+          (difficulty === 'mixed' || q.difficulty === targetDiff) && 
+          !usedQuestionIds.includes(q.id)
       );
 
-      if (difficulty !== 'mixed') {
-          let diffFiltered = availableQuestions.filter(q => q.difficulty === targetDiff);
-          if (diffFiltered.length > 0) availableQuestions = diffFiltered;
-      }
-
-      // 5. إذا مافيه أسئلة
-      if (availableQuestions.length === 0) {
-          setCurrentQuestion(`لا توجد أسئلة لحرف (${letter}) بصعوبة (${targetDiff})`);
+      if (available.length === 0) {
+          setCurrentQuestion(`لا توجد أسئلة لحرف (${letter}) بهذا المستوى`);
           setCurrentAnswer("تخطي");
           return;
       }
 
-      // 6. عرض السؤال
-      const randomIndex = Math.floor(Math.random() * availableQuestions.length);
-      const selectedQuestion = availableQuestions[randomIndex];
-
-      setCurrentQuestion(selectedQuestion.question);
-      setCurrentAnswer(selectedQuestion.answer);
-      setUsedQuestionIds(prev => [...prev, selectedQuestion.id]);
+      const selected = available[Math.floor(Math.random() * available.length)];
+      setCurrentQuestion(selected.question);
+      setCurrentAnswer(selected.answer);
+      setUsedQuestionIds(prev => [...prev, selected.id]);
 
     } catch (error) {
-      console.error("Critical Error:", error);
-      setCurrentQuestion('حدث خطأ داخلي في النظام.');
-      setCurrentAnswer('خطأ');
+        setCurrentQuestion('حدث خطأ، تأكد أن الملف في مجلد public');
+        setCurrentAnswer('خطأ');
     }
   };
 
