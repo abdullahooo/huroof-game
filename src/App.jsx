@@ -255,48 +255,60 @@ function App() {
 
   const fetchQuestion = async (letter) => {
     try {
-      const response = await fetch('/questions_with_difficulty.csv?' + Date.now());
+      // الرابط المباشر حقك من GitHub Gist
+      const url = 'https://gist.githubusercontent.com/abdullahooo/902acfdf086619ba9826cd242abb70fb/raw/4c554fa7ad6e282df3e636af1ac1996478bd439f/gistfile1.txt';
+      const response = await fetch(url);
+      
+      if (!response.ok) throw new Error('فشل الاتصال بالرابط');
+      
       const text = await response.text();
-      const lines = text.split('\n');
+      // تقسيم السطور بشكل يدعم كل الأنظمة
+      const lines = text.split(/\r?\n/);
       let allQuestions = [];
 
       lines.forEach(line => {
           if (!line.trim()) return;
           const parts = line.split(',');
+          // التأكد من وجود الأقسام الأربعة: حرف، سؤال، إجابة، صعوبة
           if (parts.length >= 4) {
               allQuestions.push({
                   letter: parts[0].trim().replace(/^\uFEFF/, ''), 
                   question: parts[1].trim(),
                   answer: parts[2].trim(),
                   difficulty: parts[3].trim(),
-                  id: parts[1].trim() // السؤال نفسه هو الـ ID عشان ما يتكرر
+                  id: parts[1].trim() // استخدمنا نص السؤال كمعرف فريد لمنع التكرار
               });
           }
       });
 
+      // مطابقة مستوى الصعوبة
       const diffMap = { 'easy': 'سهل', 'medium': 'متوسط', 'hard': 'صعب', 'mixed': 'mixed' };
       const targetDiff = diffMap[difficulty] || 'متوسط';
       const searchLetter = letter.trim();
 
+      // فلترة الأسئلة بالحرف، والصعوبة، وعدم التكرار
       let available = allQuestions.filter(q => 
           q.letter === searchLetter && 
           (difficulty === 'mixed' || q.difficulty === targetDiff) && 
           !usedQuestionIds.includes(q.id)
       );
 
+      // إذا لم تتوفر أسئلة بالصعوبة المحددة
       if (available.length === 0) {
           setCurrentQuestion(`لا توجد أسئلة لحرف (${letter}) بهذا المستوى`);
           setCurrentAnswer("تخطي");
           return;
       }
 
+      // اختيار سؤال عشوائي من المتوفر وعرضه
       const selected = available[Math.floor(Math.random() * available.length)];
       setCurrentQuestion(selected.question);
       setCurrentAnswer(selected.answer);
       setUsedQuestionIds(prev => [...prev, selected.id]);
 
     } catch (error) {
-        setCurrentQuestion('حدث خطأ، تأكد أن الملف في مجلد public');
+        console.error("Fetch Error:", error);
+        setCurrentQuestion('حدث خطأ في جلب الأسئلة من الرابط.');
         setCurrentAnswer('خطأ');
     }
   };
