@@ -6,18 +6,14 @@ export default function handler(req, res) {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
+  // نستقبل الحرف، الأسئلة المستخدمة، ومستوى الصعوبة من الواجهة
   const { letter, usedIds = [], difficulty = 'medium' } = req.body;
 
   try {
-    // 🌟 التعديل السحري هنا: المسار صار داخل مجلد api
     const csvPath = path.join(process.cwd(), 'api', 'questions_with_difficulty.csv');
 
     if (!fs.existsSync(csvPath)) {
-        return res.status(200).json({
-            question: 'خطأ: لم يتم العثور على ملف الأسئلة في الخادم! تأكد من نقله لمجلد api.',
-            answer: 'خطأ',
-            id: null
-        });
+        return res.status(200).json({ question: 'لم يتم العثور على قاعدة البيانات', answer: 'خطأ', id: null });
     }
 
     const fileContent = fs.readFileSync(csvPath, 'utf8');
@@ -27,11 +23,12 @@ export default function handler(req, res) {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
-
+        
         const parts = line.split(',');
         if (parts.length >= 4) {
+            let cleanLetter = parts[0].replace(/"/g, '').replace(/^\uFEFF/, '').trim();
             allQuestions.push({
-                letter: parts[0].replace(/"/g, '').trim(),
+                letter: cleanLetter,
                 question: parts[1].replace(/"/g, '').trim(),
                 answer: parts[2].replace(/"/g, '').trim(),
                 difficulty: parts[3].replace(/"/g, '').trim(),
@@ -40,20 +37,26 @@ export default function handler(req, res) {
         }
     }
 
+    // 🔥 هنا الحل الجذري: تحويل الصعوبة من إنجليزي لعربي عشان تطابق ملفك
+    const diffMap = { 'easy': 'سهل', 'medium': 'متوسط', 'hard': 'صعب', 'mixed': 'mixed' };
+    const targetDiff = diffMap[difficulty] || 'متوسط';
+
+    const searchLetter = letter.trim();
+    
+    // فلترة بالحرف
     let availableQuestions = allQuestions.filter(q => 
-        q.letter === letter && !usedIds.includes(q.id)
+        q.letter === searchLetter && !usedIds.includes(q.id)
     );
 
+    // فلترة بالصعوبة
     if (difficulty !== 'mixed') {
-        let diffFiltered = availableQuestions.filter(q => q.difficulty === difficulty);
-        if (diffFiltered.length > 0) {
-            availableQuestions = diffFiltered;
-        }
+        let diffFiltered = availableQuestions.filter(q => q.difficulty === targetDiff);
+        if (diffFiltered.length > 0) availableQuestions = diffFiltered;
     }
 
     if (availableQuestions.length === 0) {
         return res.status(200).json({
-            question: `لا توجد أسئلة متاحة لحرف (${letter}) في هذا المستوى!`,
+            question: `لا توجد أسئلة لحرف (${letter}) بصعوبة (${targetDiff})`,
             answer: "تخطي",
             id: null
         });
@@ -63,17 +66,12 @@ export default function handler(req, res) {
     const selectedQuestion = availableQuestions[randomIndex];
 
     res.status(200).json({
-        question: selectedQuestion.question || 'خطأ: السؤال فارغ',
-        answer: selectedQuestion.answer || 'خطأ: الإجابة فارغة',
+        question: selectedQuestion.question,
+        answer: selectedQuestion.answer,
         id: selectedQuestion.id
     });
 
   } catch (error) {
-    console.error("API Error:", error);
-    res.status(500).json({ 
-        question: `خطأ في قراءة قاعدة البيانات: ${error.message}`, 
-        answer: 'خطأ',
-        id: null
-    });
+    res.status(500).json({ question: `خطأ في الخادم: ${error.message}`, answer: 'خطأ', id: null });
   }
 }

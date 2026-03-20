@@ -255,61 +255,19 @@ function App() {
 
   const fetchQuestion = async (letter) => {
     try {
-      // 1. جلب الملف مباشرة من مجلد public (بدون سيرفر)
-      const response = await fetch('/questions_with_difficulty.csv');
-      if (!response.ok) throw new Error('لم يتم العثور على الملف');
+      const response = await fetch('/api/question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ letter: letter, usedIds: usedQuestionIds, difficulty: difficulty })
+      });
       
-      const csvText = await response.text();
-      const lines = csvText.split(/\r?\n/);
-      let allQuestions = [];
-
-      // 2. تحليل البيانات
-      for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          
-          const parts = line.split(',');
-          if (parts.length >= 4) {
-              allQuestions.push({
-                  letter: parts[0].replace(/"/g, '').trim(),
-                  question: parts[1].replace(/"/g, '').trim(),
-                  answer: parts[2].replace(/"/g, '').trim(),
-                  difficulty: parts[3].replace(/"/g, '').trim(),
-                  id: `q_${i}`
-              });
-          }
-      }
-
-      // 3. الفلترة حسب الحرف وعدم التكرار
-      let availableQuestions = allQuestions.filter(q => 
-          q.letter === letter && !usedQuestionIds.includes(q.id)
-      );
-
-      // 4. الفلترة حسب الصعوبة
-      if (difficulty !== 'mixed') {
-          let diffFiltered = availableQuestions.filter(q => q.difficulty === difficulty);
-          if (diffFiltered.length > 0) availableQuestions = diffFiltered;
-      }
-
-      // 5. التحقق من توفر أسئلة
-      if (availableQuestions.length === 0) {
-          setCurrentQuestion(`لا توجد أسئلة لحرف (${letter}) في هذا المستوى!`);
-          setCurrentAnswer("تخطي");
-          return;
-      }
-
-      // 6. اختيار سؤال عشوائي وعرضه
-      const randomIndex = Math.floor(Math.random() * availableQuestions.length);
-      const selectedQuestion = availableQuestions[randomIndex];
-
-      setCurrentQuestion(selectedQuestion.question);
-      setCurrentAnswer(selectedQuestion.answer);
-      setUsedQuestionIds(prev => [...prev, selectedQuestion.id]);
-
+      const data = await response.json();
+      setCurrentQuestion(data.question);
+      setCurrentAnswer(data.answer);
+      if (data.id) setUsedQuestionIds(prev => [...prev, data.id]);
     } catch (error) {
-      console.error("Error reading CSV:", error);
-      setCurrentQuestion('خطأ: تأكد من وضع ملف الأسئلة داخل مجلد public');
-      setCurrentAnswer('خطأ');
+      console.error("Error fetching question:", error);
+      setCurrentQuestion('فشل الاتصال بقاعدة البيانات.');
     }
   };
 
