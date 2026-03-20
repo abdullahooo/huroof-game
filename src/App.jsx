@@ -854,9 +854,8 @@ function App() {
 
                 {/* The Command Center (Question Modal) */}
                 {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
-                    <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(2, 2, 4, 0.96)', backdropFilter: 'blur(20px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-                    
-                    <div className="glass-panel anim-glitch" style={{ width: '100%', maxWidth: '1100px', padding: '60px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 40px 100px rgba(0,0,0,0.8)' }}>
+                   <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(2, 2, 4, 0.98)', backdropFilter: 'blur(20px)', display: 'flex', justifyContent: 'center', alignItems: isMobile ? 'flex-start' : 'center', zIndex: 9999, overflowY: 'auto', padding: isMobile ? '20px 0' : '0' }}>
+    <div className="glass-panel anim-glitch" style={{ width: isMobile ? '95%' : '100%', maxWidth: '1100px', padding: isMobile ? '25px 15px' : '60px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 40px 100px rgba(0,0,0,0.8)', margin: isMobile ? '20px auto' : '0' }}>
                         
                         {/* Silence Banner */}
                         {silencedTeam !== null && (
@@ -906,18 +905,7 @@ function App() {
                         </div>
                         )}
                         
-                        <div className="command-center" style={{
-    display: 'flex',
-    flexDirection: isMobile ? 'column' : 'row', // يصفطهم تحت بعض بالجوال 
-    alignItems: 'center',
-    gap: isMobile ? '20px' : '30px',
-    justifyContent: 'center',
-    width: '100%',
-    background: 'rgba(0,0,0,0.5)',
-    padding: isMobile ? '15px' : '30px',
-    borderRadius: '28px',
-    border: '1px solid rgba(255,255,255,0.05)'
-}}>
+                        <div className="command-center" style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? '15px' : '30px', justifyContent: 'center', width: '100%', background: 'rgba(0,0,0,0.5)', padding: isMobile ? '15px' : '30px', borderRadius: '28px', border: '1px solid rgba(255,255,255,0.05)', marginTop: isMobile ? '20px' : '0' }}>
     {/* أدوات الفريق الأول */}
     <div style={{ textAlign: isMobile ? 'center' : 'right', width: isMobile ? '100%' : 'auto' }}> [cite: 290]
         <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team1Name || 'الفريق الأول'}</div> [cite: 291]
