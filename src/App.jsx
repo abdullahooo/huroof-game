@@ -121,6 +121,13 @@ const AdSenseWidget = ({ adSlot }) => {
 
 
 function App() {
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [gridSize, setGridSize] = useState(6); 
   const [maxRounds, setMaxRounds] = useState(1); 
@@ -617,15 +624,35 @@ function App() {
             )}
 
             {!isGameStarted ? (
-                <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', padding: '40px 20px' }}>
-                    <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: '24px' }} className="anim-cinematic">
-                    
-                    <div style={{ textAlign: 'center', marginBottom: '20px', position: 'relative' }}>
-                        <h1 style={{ fontSize: '4.8rem', fontWeight: '900', margin: '0 0 5px 0', letterSpacing: '-2px', color: '#fff', textShadow: '0 10px 30px rgba(255,255,255,0.1)' }}>
-                            تحدي الحروف <span style={{color: 'transparent', WebkitTextStroke: '2px rgba(255,255,255,0.2)'}}>PRO</span>
-                        </h1>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '1.3rem', margin: 0, fontWeight: '700', textTransform: 'uppercase', letterSpacing: '2px' }}>محطة الإعداد التكتيكي</p>
-                    </div>
+                <div className="app-container" style={{ 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: isMobile ? '20px 10px' : '40px 20px', // تقليل الحواف بالجوال 
+    minHeight: '100vh',
+    display: 'flex'
+}}>
+    <div style={{ 
+        maxWidth: '1200px', 
+        width: '100%', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: isMobile ? '12px' : '24px' // تقليل الفراغات بالجوال
+    }} className="anim-cinematic">
+        
+        <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '20px' }}>
+            <h1 style={{ 
+                fontSize: isMobile ? [cite_start]'2.2rem' : '4.8rem', // تصغير العنوان الأسطوري [cite: 205]
+                fontWeight: '900', 
+                margin: '0 0 5px 0', 
+                color: '#fff' 
+            }}>
+                تحدي الحروف <span style={{color: 'transparent', WebkitTextStroke: '1px rgba(255,255,255,0.2)'}}>PRO</span>
+            </h1>
+            <p style={{ fontSize: isMobile ? [cite_start]'0.9rem' : '1.3rem' }}>محطة الإعداد التكتيكي [cite: 206]</p>
+        </div>
+        {/* ... باقي أزرار الإعدادات ... */}
+    </div>
+</div>
                     
                     {/* 🌟 قسم تحديد الصعوبة - المحدث بخيار المشكل */}
 <div className="esport-panel" style={{ borderTop: '4px solid #fff' }}>
@@ -844,9 +871,19 @@ function App() {
                             {virusCells.includes(activeCell) && <div style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)', padding: '8px 25px', borderRadius: '12px', fontSize: '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>🦠 فيروس الانتشار</div>}
                         </div>
                         
-                        <h2 style={{ fontSize: '3rem', color: '#fff', margin: '0 0 50px 0', lineHeight: '1.5', fontWeight: '900', textAlign: 'center', textShadow: '0 10px 40px rgba(255,255,255,0.15)' }}>
-                            {currentQuestion}
-                        </h2>
+                        {/* هذا هو الشكل النهائي المرتب اللي تحطه بمكان الكود القديم عند سطر 279 */}
+<div style={{ 
+    fontSize: isMobile ? '1.3rem' : '3rem', // يصغر بالجوال عشان ما يختفي [cite: 36]
+    color: '#fff', 
+    margin: isMobile ? '20px 0' : '0 0 50px 0', // يقلل المسافة بالجوال
+    lineHeight: '1.5', 
+    fontWeight: '900', 
+    textAlign: 'center', 
+    textShadow: '0 10px 40px rgba(255,255,255,0.15)',
+    width: '90%'
+}}>
+    {currentQuestion}
+</div>
                         
                         {currentAnswer && (
                         <div style={{ marginBottom: '50px', minHeight: '100px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -869,34 +906,55 @@ function App() {
                         </div>
                         )}
                         
-                        <div className="command-center">
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>أدوات {team1Name || 'الفريق الأول'}</div>
-                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
-                                    <button className="pulse-btn" disabled={!team1Lifelines.reveal} onClick={() => useLifeline(1, 'reveal')}>كشف جزئي</button>
-                                    <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')}>تسكيت 15ث</button>
-                                    <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
-                                </div>
-                            </div>
+                        <div className="command-center" style={{
+    display: 'flex',
+    flexDirection: isMobile ? 'column' : 'row', // يصفطهم تحت بعض بالجوال 
+    alignItems: 'center',
+    gap: isMobile ? '20px' : '30px',
+    justifyContent: 'center',
+    width: '100%',
+    background: 'rgba(0,0,0,0.5)',
+    padding: isMobile ? '15px' : '30px',
+    borderRadius: '28px',
+    border: '1px solid rgba(255,255,255,0.05)'
+}}>
+    {/* أدوات الفريق الأول */}
+    <div style={{ textAlign: isMobile ? 'center' : 'right', width: isMobile ? '100%' : 'auto' }}> [cite: 290]
+        <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team1Name || 'الفريق الأول'}</div> [cite: 291]
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}> [cite: 292]
+            <button className="pulse-btn" disabled={!team1Lifelines.reveal} onClick={() => useLifeline(1, 'reveal')}>كشف جزئي</button> [cite: 293]
+            <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')}>تسكيت 15ث</button> [cite: 294]
+            <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button> [cite: 295]
+        </div>
+    </div>
 
-                            <div style={{ textAlign: 'center', minWidth: '220px' }}>
-                            <div style={{ fontSize: '6rem', fontWeight: '900', color: (timeLeft <= 10 ? '#ef4444' : '#fff'), fontFamily: 'monospace', lineHeight: '1', animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none' }}>
-                                {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`}
-                            </div>
-                            <div className="progress-bg">
-                                <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#fff' }}></div>
-                            </div>
-                            </div>
+    {/* منطقة التايمر (العداد) */}
+    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '220px' }}> [cite: 299]
+        <div style={{ 
+            fontSize: isMobile ? '3.5rem' : '6rem', // تصغير العداد بالجوال 
+            fontWeight: '900', 
+            color: (timeLeft <= 10 ? '#ef4444' : '#fff'), 
+            fontFamily: 'monospace', 
+            lineHeight: '1', 
+            animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none' 
+        }}>
+            {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`} [cite: 301]
+        </div>
+        <div className="progress-bg" style={{ marginTop: '10px' }}> [cite: 303]
+            <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#fff' }}></div> [cite: 304]
+        </div>
+    </div>
 
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ color: team2Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>أدوات {team2Name || 'الفريق الثاني'}</div>
-                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                    <button className="pulse-btn" disabled={!team2Lifelines.reveal} onClick={() => useLifeline(2, 'reveal')}>كشف جزئي</button>
-                                    <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')}>تسكيت 15ث</button>
-                                    <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
-                                </div>
-                            </div>
-                        </div>
+    {/* أدوات الفريق الثاني */}
+    <div style={{ textAlign: isMobile ? 'center' : 'left', width: isMobile ? '100%' : 'auto' }}> [cite: 308]
+        <div style={{ color: team2Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team2Name || 'الفريق الثاني'}</div> [cite: 309]
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-end' }}> [cite: 310]
+            <button className="pulse-btn" disabled={!team2Lifelines.reveal} onClick={() => useLifeline(2, 'reveal')}>كشف جزئي</button> [cite: 311]
+            <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')}>تسكيت 15ث</button> [cite: 312]
+            <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button> [cite: 313]
+        </div>
+    </div>
+</div>
                         
                         <div style={{ display: 'flex', gap: '20px', width: '100%', marginBottom: '20px' }}>
                         <button className="control-btn" onClick={() => handleAnswer(1)} style={{ background: team1Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team1Color}55`, fontSize: '1.4rem' }}>
