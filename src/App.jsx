@@ -493,7 +493,6 @@ function App() {
     .app-container::after { bottom: -20%; left: -20%; background: ${team2Color}; animation-delay: -15s; }
     @keyframes drift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(8%, 8%) scale(1.15); } }
     
-    /* ================== الكلاسات الناقصة اللي أضفناها ================== */
     .glass-panel {
         background: rgba(10, 10, 20, 0.95) !important;
         border-radius: 24px !important;
@@ -527,7 +526,6 @@ function App() {
         transform: translateY(-3px);
         box-shadow: 0 15px 40px rgba(250, 204, 21, 0.5);
     }
-    /* ==================================================================== */
 
     .esport-panel { 
         background: var(--panel-bg); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.06); 
@@ -636,7 +634,7 @@ function App() {
             )}
 
             {!isGameStarted ? (
-                <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', padding: isMobile ? '20px 10px' : '40px 20px', minHeight: '100vh', display: 'flex' }}>
+                <div className="app-container" style={{ justifyContent: isMobile ? 'flex-start' : 'center', alignItems: 'center', padding: isMobile ? '60px 10px 50px 10px' : '40px 20px', minHeight: '100vh', display: 'flex' }}>
                     <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px' }} className="anim-cinematic">
                         
                         <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '20px' }}>
@@ -646,16 +644,6 @@ function App() {
                             <p style={{ fontSize: isMobile ? '0.9rem' : '1.3rem' }}>محطة الإعداد التكتيكي</p>
                         </div>
                         
-                        <div className="esport-panel" style={{ borderTop: '4px solid #fff' }}>
-                            <h3 className="panel-title">🧠 مستوى الصعوبة</h3>
-                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                                <button className={`pulse-btn btn-easy ${difficulty === 'easy' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('easy')}}>🟢 سهل</button>
-                                <button className={`pulse-btn btn-medium ${difficulty === 'medium' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('medium')}}>🟡 متوسط</button>
-                                <button className={`pulse-btn btn-hard ${difficulty === 'hard' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('hard')}}>🔴 صعب</button>
-                                <button className={`pulse-btn btn-mixed ${difficulty === 'mixed' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('mixed')}} style={{ background: difficulty === 'mixed' ? 'linear-gradient(90deg, #10b981, #facc15, #ef4444)' : '', color: difficulty === 'mixed' ? '#000' : '' }}>🌀 مشكل</button>
-                            </div>
-                        </div>
-
                         <div className="esport-panel">
                             <h3 className="panel-title">🏆 نظام التنافس والانتصار</h3>
                             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
@@ -712,7 +700,17 @@ function App() {
                             </div>
                         </div>
 
-                        <button className="launch-btn" style={{marginTop: '20px'}} onClick={() => {AudioEngine.play('win'); setIsGameStarted(true)}}>
+                        <div className="esport-panel" style={{ borderTop: '4px solid #fff', marginTop: isMobile ? '0' : '10px' }}>
+                            <h3 className="panel-title">🧠 مستوى الصعوبة</h3>
+                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                                <button className={`pulse-btn btn-easy ${difficulty === 'easy' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('easy')}}>🟢 سهل</button>
+                                <button className={`pulse-btn btn-medium ${difficulty === 'medium' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('medium')}}>🟡 متوسط</button>
+                                <button className={`pulse-btn btn-hard ${difficulty === 'hard' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('hard')}}>🔴 صعب</button>
+                                <button className={`pulse-btn btn-mixed ${difficulty === 'mixed' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('mixed')}} style={{ background: difficulty === 'mixed' ? 'linear-gradient(90deg, #10b981, #facc15, #ef4444)' : '', color: difficulty === 'mixed' ? '#000' : '' }}>🌀 متوازن</button>
+                            </div>
+                        </div>
+
+                        <button className="launch-btn" style={{marginTop: '10px'}} onClick={() => {AudioEngine.play('win'); setIsGameStarted(true)}}>
                             تهيئة الساحة وبدء المواجهة
                         </button>
                     </div>
@@ -814,7 +812,6 @@ function App() {
                         </div>
                     </div>
 
-                    {/* ================== نافذة السؤال (الجوال والكمبيوتر) ================== */}
                     {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
                         <div style={{ 
                             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
