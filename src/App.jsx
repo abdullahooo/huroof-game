@@ -146,34 +146,39 @@ function App() {
   const [letters, setLetters] = useState([]);
   const [cells, setCells] = useState([]);
   const [usedQuestionIds, setUsedQuestionIds] = useState([]); 
+
   const [goldenCells, setGoldenCells] = useState([]);
   const [mineCells, setMineCells] = useState([]); 
   const [virusCells, setVirusCells] = useState([]); 
+  
   const [team1Wins, setTeam1Wins] = useState(0);
   const [team2Wins, setTeam2Wins] = useState(0);
   const [currentRound, setCurrentRound] = useState(1);
+  
   const [team1Score, setTeam1Score] = useState(0);
   const [team2Score, setTeam2Score] = useState(0);
+  
   const [roundWinner, setRoundWinner] = useState(null);
   const [matchWinner, setMatchWinner] = useState(null);
+
   const [activeCell, setActiveCell] = useState(null);
   const [timeLeft, setTimeLeft] = useState(30);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentAnswer, setCurrentAnswer] = useState('');
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
+  
   const [explodedMine, setExplodedMine] = useState(false); 
   const [showConfetti, setShowConfetti] = useState(false);
   const [isAmbientOn, setIsAmbientOn] = useState(false);
+
   const [team1Lifelines, setTeam1Lifelines] = useState({ reveal: true, silence: true, changeQ: true });
   const [team2Lifelines, setTeam2Lifelines] = useState({ reveal: true, silence: true, changeQ: true });
+
   const [silencedTimer, setSilencedTimer] = useState(0);
   const [silencedTeam, setSilencedTeam] = useState(null);
   const [isPartialRevealed, setIsPartialRevealed] = useState(false);
 
-  const toggleMode = (mode) => { 
-      AudioEngine.play('click');
-      setModes(prev => ({...prev, [mode]: !prev[mode]})); 
-  };
+  const toggleMode = (mode) => { AudioEngine.play('click'); setModes(prev => ({...prev, [mode]: !prev[mode]})); };
 
   // ================== تهيئة الساحة ==================
   useEffect(() => {
@@ -258,6 +263,7 @@ function App() {
     try {
       const url = 'https://gist.githubusercontent.com/abdullahooo/902acfdf086619ba9826cd242abb70fb/raw/4c554fa7ad6e282df3e636af1ac1996478bd439f/gistfile1.txt';
       const response = await fetch(url);
+      
       if (!response.ok) throw new Error('فشل الاتصال بالرابط');
       
       const text = await response.text();
@@ -276,6 +282,7 @@ function App() {
               });
           }
       });
+
       const diffMap = { 'easy': 'سهل', 'medium': 'متوسط', 'hard': 'صعب', 'mixed': 'mixed' };
       const targetDiff = diffMap[difficulty] || 'متوسط';
       const searchLetter = letter.trim();
@@ -284,11 +291,13 @@ function App() {
           (difficulty === 'mixed' || q.difficulty === targetDiff) && 
           !usedQuestionIds.includes(q.id)
       );
+
       if (available.length === 0) {
           setCurrentQuestion(`لا توجد أسئلة لحرف (${letter}) بهذا المستوى`);
           setCurrentAnswer("تخطي");
           return;
       }
+
       const selected = available[Math.floor(Math.random() * available.length)];
       setCurrentQuestion(selected.question);
       setCurrentAnswer(selected.answer);
@@ -306,9 +315,11 @@ function App() {
     if (cells[index] === 0) {
       AudioEngine.play('click');
       setActiveCell(index);
+      
       setIsPartialRevealed(false);
       setSilencedTimer(0);
       setSilencedTeam(null);
+
       if (mineCells.includes(index)) {
         AudioEngine.play('bomb'); setExplodedMine(true);
         setTimeout(() => {
@@ -389,8 +400,13 @@ function App() {
     if (team === 1) setTeam1Lifelines(prev => ({...prev, [type]: false}));
     if (team === 2) setTeam2Lifelines(prev => ({...prev, [type]: false}));
     
-    if (type === 'reveal') { setIsPartialRevealed(true); }
-    if (type === 'silence') { setSilencedTeam(team === 1 ? 2 : 1); setSilencedTimer(15); }
+    if (type === 'reveal') {
+        setIsPartialRevealed(true);
+    }
+    if (type === 'silence') {
+        setSilencedTeam(team === 1 ? 2 : 1);
+        setSilencedTimer(15);
+    }
     if (type === 'changeQ') {
         setCurrentQuestion('جاري الاتصال بالخادم لاستبدال السؤال...');
         setCurrentAnswer('');
@@ -416,6 +432,7 @@ function App() {
   const getHexStyle = (status, index) => {
     const isGold = goldenCells.includes(index) && status === 0;
     const isVirus = virusCells.includes(index) && status === 0;
+    
     const neutralBg = 'rgba(20, 20, 30, 0.4)';
     const neutralBorder = 'rgba(255, 255, 255, 0.05)';
     
@@ -452,7 +469,8 @@ function App() {
     }
 
     body, html { 
-        margin: 0; padding: 0; width: 100%; height: 100%; 
+        margin: 0;
+        padding: 0; width: 100%; height: 100%; 
         background-color: var(--bg-deep); 
         color: var(--text-primary);
         font-family: 'Cairo', sans-serif; 
@@ -474,7 +492,8 @@ function App() {
         box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
     }
     .ad-placeholder {
-        width: 160px; height: 600px; border: 2px dashed rgba(255,255,255,0.15); border-radius: 12px; display: flex; justify-content: center; align-items: center;
+        width: 160px;
+        height: 600px; border: 2px dashed rgba(255,255,255,0.15); border-radius: 12px; display: flex; justify-content: center; align-items: center;
         color: rgba(255,255,255,0.3); font-weight: 800; font-size: 1.1rem;
         text-align: center; background: rgba(255,255,255,0.02); box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
@@ -482,15 +501,18 @@ function App() {
     .game-area { flex: 1; position: relative; height: 100vh; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
     
     .app-container { 
-        flex: 1; background: radial-gradient(ellipse at top, #11111a 0%, var(--bg-deep) 80%);
+        flex: 1;
+        background: radial-gradient(ellipse at top, #11111a 0%, var(--bg-deep) 80%);
         display: flex; flex-direction: column; position: relative; z-index: 1;
     }
 
     .app-container::before, .app-container::after {
-        content: ''; position: fixed; width: 60vw; height: 60vw; border-radius: 50%; filter: blur(140px); z-index: -1; opacity: 0.12; animation: drift 30s infinite alternate ease-in-out;
+        content: ''; position: fixed; width: 60vw;
+        height: 60vw; border-radius: 50%; filter: blur(140px); z-index: -1; opacity: 0.12; animation: drift 30s infinite alternate ease-in-out;
     }
     .app-container::before { top: -20%; right: -20%; background: ${team1Color}; }
     .app-container::after { bottom: -20%; left: -20%; background: ${team2Color}; animation-delay: -15s; }
+    
     @keyframes drift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(8%, 8%) scale(1.15); } }
     
     .glass-panel {
@@ -528,15 +550,18 @@ function App() {
     }
 
     .esport-panel { 
-        background: var(--panel-bg); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.06); 
-        border-radius: 20px; padding: 35px; box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.05);
+        background: var(--panel-bg);
+        backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.06); 
+        border-radius: 20px; padding: 35px;
+        box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.05);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s ease;
     }
     .esport-panel:hover { border-color: rgba(255, 255, 255, 0.15); transform: translateY(-3px); }
 
     .pro-input {
         width: 100%; padding: 18px 24px; border-radius: 14px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.06);
-        color: white; font-family: inherit; font-size: 1.1rem; font-weight: 700; outline: none; transition: all 0.3s ease; box-sizing: border-box;
+        color: white; font-family: inherit; font-size: 1.1rem; font-weight: 700;
+        outline: none; transition: all 0.3s ease; box-sizing: border-box;
     }
     .pro-input:focus { border-color: #fff; background: rgba(0,0,0,0.8); box-shadow: 0 0 25px rgba(255,255,255,0.08); }
 
@@ -545,7 +570,8 @@ function App() {
     .color-picker::-webkit-color-swatch { border: 2px solid rgba(255,255,255,0.15); border-radius: 14px; }
 
     .pulse-btn { 
-        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary); padding: 14px 28px; border-radius: 12px; 
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        color: var(--text-secondary); padding: 14px 28px; border-radius: 12px; 
         cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); font-family: inherit; font-weight: 800; font-size: 1rem;
     }
     .pulse-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; transform: translateY(-2px); }
@@ -557,8 +583,10 @@ function App() {
     .btn-hard.active { background: #ef4444; color: #fff; border-color: #ef4444; box-shadow: 0 5px 20px rgba(239, 68, 68, 0.4); }
 
     .launch-btn {
-        width: 100%; padding: 25px; background: linear-gradient(90deg, #ffffff, #e0e0e0); color: #000; border: none; border-radius: 16px; font-size: 1.6rem; font-weight: 900; 
-        cursor: pointer; font-family: inherit; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 15px 40px rgba(255,255,255,0.2); text-transform: uppercase; letter-spacing: 1px;
+        width: 100%; padding: 25px;
+        background: linear-gradient(90deg, #ffffff, #e0e0e0); color: #000; border: none; border-radius: 16px; font-size: 1.6rem; font-weight: 900; 
+        cursor: pointer; font-family: inherit;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 15px 40px rgba(255,255,255,0.2); text-transform: uppercase; letter-spacing: 1px;
     }
     .launch-btn:hover { transform: translateY(-5px); box-shadow: 0 25px 50px rgba(255,255,255,0.35); }
     
@@ -634,8 +662,33 @@ function App() {
             )}
 
             {!isGameStarted ? (
-                <div className="app-container" style={{ justifyContent: isMobile ? 'flex-start' : 'center', alignItems: 'center', padding: isMobile ? '60px 10px 50px 10px' : '40px 20px', minHeight: '100vh', display: 'flex' }}>
-                    <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px' }} className="anim-cinematic">
+                <div className="app-container" style={{ 
+                    justifyContent: 'flex-start', 
+                    alignItems: 'center', 
+                    padding: isMobile ? '60px 10px 50px 10px' : '80px 20px 50px 20px', 
+                    minHeight: '100vh', 
+                    display: 'flex' 
+                }}>
+                    {/* 🌟 العبارة المائية في الخلفية (تختفي مع بدء اللعب) 🌟 */}
+                    <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        fontSize: isMobile ? '12vw' : '8vw',
+                        fontWeight: '900',
+                        color: 'rgba(255,255,255,0.02)',
+                        whiteSpace: 'nowrap',
+                        zIndex: 0,
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                        textAlign: 'center',
+                        lineHeight: '1'
+                    }}>
+                        تحدي الحروف<br/>PRO
+                    </div>
+
+                    <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', position: 'relative', zIndex: 10 }} className="anim-cinematic">
                         
                         <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '20px' }}>
                             <h1 style={{ fontSize: isMobile ? '2.2rem' : '4.8rem', fontWeight: '900', margin: '0 0 5px 0', color: '#fff' }}>
@@ -718,7 +771,10 @@ function App() {
             ) : (
                 <div className="app-container" style={{ padding: '3vh 3vw', animation: explodedMine ? 'screenShake 0.5s ease-in-out' : 'none' }}>
                     
+                    {/* Header HUD - E-Sports Style */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '20px', maxWidth: '1800px', margin: '0 auto 20px auto', width: '100%', zIndex: 10 }}>
+                        
+                        {/* Team 1 Scoreboard */}
                         <div className="esport-panel" style={{ display: 'flex', alignItems: 'center', gap: '25px', padding: '20px 40px', minWidth: '320px', borderRight: `6px solid ${team1Color}` }}>
                             <div style={{ fontSize: '4.5rem', fontWeight: '900', color: team1Color, lineHeight: '1', textShadow: `0 0 30px ${team1Color}88` }}>{team1Score}</div>
                             <div>
@@ -727,15 +783,17 @@ function App() {
                             </div>
                         </div>
 
+                        {/* Status Center */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px 45px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(20px)', boxShadow: '0 15px 35px rgba(0,0,0,0.4)' }}>
-                                <span style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fff', letterSpacing: '2px' }}>
-                                    الجولة {maxRounds === 999 ? currentRound : `${currentRound} من ${maxRounds}`}
-                                </span>
+                            <span style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fff', letterSpacing: '2px' }}>
+                                الجولة {maxRounds === 999 ? currentRound : `${currentRound} من ${maxRounds}`}
+                            </span>
                             </div>
                             {victoryCondition === 'domination' && <div style={{color: '#facc15', fontSize: '1rem', fontWeight: '800', background: 'rgba(250, 204, 21, 0.1)', padding: '6px 20px', borderRadius: '12px', border: '1px solid rgba(250, 204, 21, 0.2)', textTransform: 'uppercase'}}>نمط الهيمنة الميدانية</div>}
                         </div>
 
+                        {/* Team 2 Scoreboard */}
                         <div className="esport-panel" style={{ display: 'flex', alignItems: 'center', gap: '25px', padding: '20px 40px', minWidth: '320px', flexDirection: 'row-reverse', borderLeft: `6px solid ${team2Color}` }}>
                             <div style={{ fontSize: '4.5rem', fontWeight: '900', color: team2Color, lineHeight: '1', textShadow: `0 0 30px ${team2Color}88` }}>{team2Score}</div>
                             <div style={{ textAlign: 'left' }}>
@@ -743,18 +801,21 @@ function App() {
                                 <div style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', fontWeight: '700', marginTop: '4px' }}>الجولات المكتسبة: <span style={{color:'#fff'}}>{team2Wins}</span></div>
                             </div>
                         </div>
+
                     </div>
 
+                    {/* Main Grid Area */}
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, position: 'relative', zIndex: 10, paddingBottom: '40px' }}>
                         <div className="hex-container" style={{
-                            display: 'flex', flexDirection: 'column', alignItems: 'center',
-                            '--hex-w': `clamp(28px, calc(min(${isMobile ? '85vw' : '68vw'}, ${isMobile ? '35vh' : '52vh'}) / ${gridSize}), 110px)`, 
-                            '--hex-h': 'calc(var(--hex-w) * 1.1547)', 
-                            '--hex-gap': 'calc(var(--hex-w) * 0.08)', 
-                            '--hex-border': '3px', 
-                            '--hex-offset': 'calc((var(--hex-w) + var(--hex-gap)) / 2)'
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        '--hex-w': `clamp(30px, calc(min(70vw, 55vh) / ${gridSize}), 110px)`, 
+                        '--hex-h': 'calc(var(--hex-w) * 1.1547)', 
+                        '--hex-gap': 'calc(var(--hex-w) * 0.08)', 
+                        '--hex-border': '3px', 
+                        '--hex-offset': 'calc((var(--hex-w) + var(--hex-gap)) / 2)'
                         }}>
                         
+                        {/* الإطارات المضيئة (Target Lines) */}
                         <div style={{position: 'absolute', top: '-30px', left: '10%', right: '10%', height: '8px', background: team1Color, borderRadius: '10px', boxShadow: `0 0 30px ${team1Color}, 0 0 60px ${team1Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
                         <div style={{position: 'absolute', bottom: '-30px', left: '10%', right: '10%', height: '8px', background: team1Color, borderRadius: '10px', boxShadow: `0 0 30px ${team1Color}, 0 0 60px ${team1Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
                         <div style={{position: 'absolute', left: '-30px', top: '10%', bottom: '10%', width: '8px', background: team2Color, borderRadius: '10px', boxShadow: `0 0 30px ${team2Color}, 0 0 60px ${team2Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
@@ -762,36 +823,37 @@ function App() {
 
                         {gridRows.map((row, rowIndex) => (
                             <div key={rowIndex} style={{ display: 'flex', gap: 'var(--hex-gap)', marginTop: rowIndex > 0 ? 'calc(var(--hex-h) * -0.25)' : '0', transform: `translateX(${rowIndex % 2 === 0 ? 'calc(var(--hex-offset) * -0.5)' : 'calc(var(--hex-offset) * 0.5)'})` }}>
-                                {row.map((cellIndex) => {
-                                    const style = getHexStyle(cells[cellIndex], cellIndex);
-                                    const displayLetter = (modes.blind && cells[cellIndex] === 0) ? '' : (cells[cellIndex] === 3 ? '💣' : letters[cellIndex]);
-                                    return (
-                                    <div key={cellIndex} className="hex-cell" onClick={() => handleCellClick(cellIndex)} onMouseEnter={() => AudioEngine.play('hover')}
-                                        style={{ 
-                                            width: 'var(--hex-w)', height: 'var(--hex-h)', 
-                                            background: style.border, 
-                                            clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)', 
-                                            display: 'flex', justifyContent: 'center', alignItems: 'center',
-                                            boxShadow: style.shadow, zIndex: style.zIndex
-                                        }}>
-                                        <div style={{ 
-                                            width: 'calc(100% - var(--hex-border) * 2)', height: 'calc(100% - var(--hex-border) * 2)', 
-                                            background: style.bg, 
-                                            clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)', 
-                                            display: 'flex', justifyContent: 'center', alignItems: 'center', 
-                                            fontSize: 'calc(var(--hex-w) * 0.45)', color: style.color, 
-                                            fontWeight: '900', userSelect: 'none', textShadow: '0 4px 10px rgba(0,0,0,0.8)'
-                                        }}>
-                                        {displayLetter}
-                                        </div>
+                            {row.map((cellIndex) => {
+                                const style = getHexStyle(cells[cellIndex], cellIndex);
+                                const displayLetter = (modes.blind && cells[cellIndex] === 0) ? '' : (cells[cellIndex] === 3 ? '💣' : letters[cellIndex]);
+                                return (
+                                <div key={cellIndex} className="hex-cell" onClick={() => handleCellClick(cellIndex)} onMouseEnter={() => AudioEngine.play('hover')}
+                                    style={{ 
+                                        width: 'var(--hex-w)', height: 'var(--hex-h)', 
+                                        background: style.border, 
+                                        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)', 
+                                        display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        boxShadow: style.shadow, zIndex: style.zIndex
+                                    }}>
+                                    <div style={{ 
+                                        width: 'calc(100% - var(--hex-border) * 2)', height: 'calc(100% - var(--hex-border) * 2)', 
+                                        background: style.bg, 
+                                        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)', 
+                                        display: 'flex', justifyContent: 'center', alignItems: 'center', 
+                                        fontSize: 'calc(var(--hex-w) * 0.45)', color: style.color, 
+                                        fontWeight: '900', userSelect: 'none', textShadow: '0 4px 10px rgba(0,0,0,0.8)'
+                                    }}>
+                                    {displayLetter}
                                     </div>
-                                    );
-                                })}
+                                </div>
+                                );
+                            })}
                             </div>
                         ))}
                         </div>
                     </div>
 
+                    {/* Live Stats Bar */}
                     <div className="esport-panel live-stats" style={{ position: 'sticky', bottom: '20px', left: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '1400px', padding: '15px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 9000, borderRadius: '20px', marginBottom: '20px' }}>
                         <div className="actions" style={{ display: 'flex', gap: '15px' }}>
                             <button onClick={() => {AudioEngine.play('click'); setCells(Array(gridSize*gridSize).fill(0)); setTeam1Score(0); setTeam2Score(0);}} className="pulse-btn" style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.1)' }}>تصفير الساحة</button>
@@ -812,6 +874,7 @@ function App() {
                         </div>
                     </div>
 
+                    {/* The Command Center (Question Modal) */}
                     {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
                         <div style={{ 
                             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
@@ -820,11 +883,12 @@ function App() {
                             justifyContent: 'center', alignItems: 'center', 
                             zIndex: 9999, 
                             overflowY: 'auto', 
-                            padding: isMobile ? '15px 10px 100px 10px' : '0' 
+                            padding: isMobile ? '40px 10px 120px 10px' : '0' 
                         }}>
                             
                             <div className="glass-panel anim-glitch" style={{ 
-                                width: '100%', maxWidth: '1100px', 
+                                width: isMobile ? '100%' : '1100px', 
+                                maxWidth: '1100px', 
                                 padding: isMobile ? '20px 10px' : '60px', 
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', 
                                 border: '1px solid rgba(255,255,255,0.08)', 
@@ -832,45 +896,47 @@ function App() {
                                 margin: isMobile ? '0 auto' : '0' 
                             }}>
                                 
+                                {/* Silence Banner */}
                                 {silencedTeam !== null && (
-                                    <div style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#ef4444', padding: '10px 30px', borderRadius: '100px', fontSize: isMobile ? '1rem' : '1.2rem', fontWeight: '900', marginBottom: '15px', animation: 'alertPulse 1s infinite', textAlign: 'center' }}>
+                                    <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#ef4444', padding: '10px 30px', borderRadius: '100px', fontSize: '1.2rem', fontWeight: '900', zIndex: 100, boxShadow: '0 0 20px rgba(239,68,68,0.5)', animation: 'alertPulse 1s infinite' }}>
                                         🤫 تم تسكيت {silencedTeam === 1 ? team1Name || 'الفريق الأول' : team2Name || 'الفريق الثاني'} ({silencedTimer}ث)
                                     </div>
                                 )}
 
-                                <div style={{ display: 'flex', gap: '10px', marginBottom: isMobile ? '15px' : '40px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                    <div style={{ background: '#fff', color: '#000', padding: isMobile ? '6px 20px' : '8px 35px', borderRadius: '12px', fontSize: isMobile ? '1.1rem' : '1.5rem', fontWeight: '900' }}>حرف ( {letters[activeCell]} )</div>
-                                    {goldenCells.includes(activeCell) && <div style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#fde047', border: '1px solid rgba(234, 179, 8, 0.4)', padding: isMobile ? '6px 15px' : '8px 25px', borderRadius: '12px', fontSize: isMobile ? '0.9rem' : '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>✨ ذهبية</div>}
-                                    {virusCells.includes(activeCell) && <div style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)', padding: isMobile ? '6px 15px' : '8px 25px', borderRadius: '12px', fontSize: isMobile ? '0.9rem' : '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>🦠 فيروس</div>}
+                                <div style={{ display: 'flex', gap: '16px', marginBottom: '40px', marginTop: silencedTeam ? '40px' : '0' }}>
+                                    <div style={{ background: '#fff', color: '#000', padding: '8px 35px', borderRadius: '12px', fontSize: '1.5rem', fontWeight: '900', boxShadow: '0 5px 20px rgba(255,255,255,0.3)', letterSpacing: '1px' }}>حرف ( {letters[activeCell]} )</div>
+                                    {goldenCells.includes(activeCell) && <div style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#fde047', border: '1px solid rgba(234, 179, 8, 0.4)', padding: '8px 25px', borderRadius: '12px', fontSize: '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>✨ خلية ذهبية مضاعفة</div>}
+                                    {virusCells.includes(activeCell) && <div style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)', padding: '8px 25px', borderRadius: '12px', fontSize: '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>🦠 فيروس الانتشار</div>}
                                 </div>
                                 
                                 <div style={{ 
                                     fontSize: isMobile ? '1.3rem' : '3rem', 
                                     color: '#fff', 
-                                    margin: isMobile ? '0 0 20px 0' : '0 0 50px 0', 
-                                    lineHeight: '1.4', 
+                                    margin: isMobile ? '20px 0' : '0 0 50px 0', 
+                                    lineHeight: '1.5', 
                                     fontWeight: '900', 
                                     textAlign: 'center', 
-                                    width: '100%'
+                                    textShadow: '0 10px 40px rgba(255,255,255,0.15)',
+                                    width: '90%'
                                 }}>
                                     {currentQuestion}
                                 </div>
                                 
                                 {currentAnswer && (
-                                <div style={{ marginBottom: isMobile ? '20px' : '50px', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                                <div style={{ marginBottom: '50px', minHeight: '100px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                     {!isAnswerRevealed ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                                            <button className="control-btn" onClick={() => {AudioEngine.play('click'); setIsAnswerRevealed(true)}} style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: isMobile ? '12px 25px' : '20px 60px', borderRadius: '16px', fontSize: isMobile ? '1.1rem' : '1.5rem' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                                            <button className="control-btn" onClick={() => {AudioEngine.play('click'); setIsAnswerRevealed(true)}} style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '20px 60px', borderRadius: '16px', fontSize: '1.5rem' }}>
                                                 كشف الإجابة (Space)
                                             </button>
                                             {isPartialRevealed && (
-                                                <div className="anim-pop-in" style={{ fontSize: isMobile ? '1.2rem' : '2rem', color: '#facc15', fontWeight: '900' }}>
+                                                <div className="anim-pop-in" style={{ fontSize: '2rem', color: '#facc15', fontWeight: '900', letterSpacing: '3px', textShadow: '0 0 15px rgba(250,204,21,0.5)' }}>
                                                     تلميح: {currentAnswer.substring(0, 2)}...
                                                 </div>
                                             )}
                                         </div>
                                     ) : (
-                                        <div className="anim-slide-up" style={{ background: '#fff', color: '#000', padding: isMobile ? '12px 30px' : '20px 70px', borderRadius: '16px', fontSize: isMobile ? '1.5rem' : '3rem', fontWeight: '900', textAlign: 'center' }}>
+                                        <div className="anim-slide-up" style={{ background: '#fff', color: '#000', padding: '20px 70px', borderRadius: '16px', fontSize: '3rem', fontWeight: '900', boxShadow: '0 20px 50px rgba(255,255,255,0.3)', letterSpacing: '1px' }}>
                                             {currentAnswer}
                                         </div>
                                     )}
@@ -879,9 +945,9 @@ function App() {
                                 
                                 <div className="command-center" style={{
                                     display: 'flex',
-                                    flexDirection: isMobile ? 'column' : 'row',
+                                    flexDirection: isMobile ? 'column' : 'row', 
                                     alignItems: 'center',
-                                    gap: isMobile ? '15px' : '30px',
+                                    gap: isMobile ? '20px' : '30px',
                                     justifyContent: 'center',
                                     width: '100%',
                                     background: 'rgba(0,0,0,0.5)',
@@ -889,46 +955,59 @@ function App() {
                                     borderRadius: '28px',
                                     border: '1px solid rgba(255,255,255,0.05)'
                                 }}>
+                                    {/* أدوات الفريق الأول */}
                                     <div style={{ textAlign: isMobile ? 'center' : 'right', width: isMobile ? '100%' : 'auto' }}>
-                                        <div style={{ color: team1Color, fontSize: '1rem', fontWeight: '900', marginBottom: '10px' }}>أدوات {team1Name || 'الفريق الأول'}</div>
-                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.reveal} onClick={() => useLifeline(1, 'reveal')} style={{padding: isMobile ? '8px 15px' : '14px 28px', fontSize: isMobile ? '0.9rem' : '1rem'}}>كشف</button>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')} style={{padding: isMobile ? '8px 15px' : '14px 28px', fontSize: isMobile ? '0.9rem' : '1rem'}}>تسكيت</button>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')} style={{padding: isMobile ? '8px 15px' : '14px 28px', fontSize: isMobile ? '0.9rem' : '1rem', borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
+                                        <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team1Name || 'الفريق الأول'}</div>
+                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+                                            <button className="pulse-btn" disabled={!team1Lifelines.reveal} onClick={() => useLifeline(1, 'reveal')}>كشف جزئي</button>
+                                            <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')}>تسكيت 15 ثانية</button>
+                                            <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
                                         </div>
                                     </div>
 
-                                    <div style={{ textAlign: 'center', margin: isMobile ? '5px 0' : '0' }}>
-                                        <div style={{ fontSize: isMobile ? '3rem' : '6rem', fontWeight: '900', color: (timeLeft <= 10 ? '#ef4444' : '#fff'), fontFamily: 'monospace', lineHeight: '1' }}>
+                                    {/* منطقة التايمر (العداد) */}
+                                    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '220px' }}>
+                                        <div style={{ 
+                                            fontSize: isMobile ? '3.5rem' : '6rem', 
+                                            fontWeight: '900', 
+                                            color: (timeLeft <= 10 ? '#ef4444' : '#fff'), 
+                                            fontFamily: 'monospace', 
+                                            lineHeight: '1', 
+                                            animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none' 
+                                        }}>
                                             {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`}
                                         </div>
+                                        <div className="progress-bg" style={{ marginTop: '10px' }}>
+                                            <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#fff' }}></div>
+                                        </div>
                                     </div>
 
+                                    {/* أدوات الفريق الثاني */}
                                     <div style={{ textAlign: isMobile ? 'center' : 'left', width: isMobile ? '100%' : 'auto' }}>
-                                        <div style={{ color: team2Color, fontSize: '1rem', fontWeight: '900', marginBottom: '10px' }}>أدوات {team2Name || 'الفريق الثاني'}</div>
-                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-end' }}>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.reveal} onClick={() => useLifeline(2, 'reveal')} style={{padding: isMobile ? '8px 15px' : '14px 28px', fontSize: isMobile ? '0.9rem' : '1rem'}}>كشف</button>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')} style={{padding: isMobile ? '8px 15px' : '14px 28px', fontSize: isMobile ? '0.9rem' : '1rem'}}>تسكيت</button>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')} style={{padding: isMobile ? '8px 15px' : '14px 28px', fontSize: isMobile ? '0.9rem' : '1rem', borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
+                                        <div style={{ color: team2Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team2Name || 'الفريق الثاني'}</div>
+                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-end' }}>
+                                            <button className="pulse-btn" disabled={!team2Lifelines.reveal} onClick={() => useLifeline(2, 'reveal')}>كشف جزئي</button>
+                                            <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')}>تسكيت 15 ثانية</button>
+                                            <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
                                         </div>
                                     </div>
                                 </div>
                                 
-                                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '10px', width: '100%', marginTop: '15px', marginBottom: '10px' }}>
-                                    <button className="control-btn" onClick={() => handleAnswer(1)} style={{ background: team1Color, color: '#fff', flex: 1, fontSize: isMobile ? '1rem' : '1.4rem', padding: isMobile ? '12px' : '20px' }}>
-                                        صحيحة - {team1Name || 'الفريق الأول'}
+                                <div style={{ display: 'flex', gap: '20px', width: '100%', marginBottom: '20px' }}>
+                                    <button className="control-btn" onClick={() => handleAnswer(1)} style={{ background: team1Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team1Color}55`, fontSize: '1.4rem' }}>
+                                        إجابة صحيحة - {team1Name || 'الفريق الأول'}
                                     </button>
-                                    <button className="control-btn" onClick={() => handleAnswer(2)} style={{ background: team2Color, color: '#fff', flex: 1, fontSize: isMobile ? '1rem' : '1.4rem', padding: isMobile ? '12px' : '20px' }}>
-                                        صحيحة - {team2Name || 'الفريق الثاني'}
+                                    <button className="control-btn" onClick={() => handleAnswer(2)} style={{ background: team2Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team2Color}55`, fontSize: '1.4rem' }}>
+                                        إجابة صحيحة - {team2Name || 'الفريق الثاني'}
                                     </button>
                                 </div>
                                 
-                                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '10px', width: '100%' }}>
-                                    <button className="control-btn" onClick={() => {AudioEngine.play('wrong'); setActiveCell(null)}} style={{ background: 'transparent', color: '#ef4444', border: '2px solid rgba(239, 68, 68, 0.5)', flex: 1, fontSize: isMobile ? '1rem' : '1.2rem', padding: isMobile ? '12px' : '20px' }}>
-                                        خاطئة (X)
+                                <div style={{ display: 'flex', gap: '20px', width: '100%' }}>
+                                    <button className="control-btn" onClick={() => {AudioEngine.play('wrong'); setActiveCell(null)}} style={{ background: 'transparent', color: '#ef4444', border: '2px solid rgba(239, 68, 68, 0.5)', flex: 1 }}>
+                                        إجابة خاطئة (X)
                                     </button>
-                                    <button className="control-btn" onClick={() => {AudioEngine.play('click'); setActiveCell(null)}} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '2px solid rgba(255, 255, 255, 0.15)', flex: 1, fontSize: isMobile ? '1rem' : '1.2rem', padding: isMobile ? '12px' : '20px' }}>
-                                        تخطي السؤال
+                                    <button className="control-btn" onClick={() => {AudioEngine.play('click'); setActiveCell(null)}} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '2px solid rgba(255, 255, 255, 0.15)', flex: 1 }}>
+                                        تخطي السؤال (السهم الأيمن)
                                     </button>
                                 </div>
 
@@ -936,12 +1015,14 @@ function App() {
                         </div>
                     )}
 
+                    {/* Explosions */}
                     {explodedMine && (
                         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'radial-gradient(circle, rgba(239,68,68,0.9) 0%, rgba(10,0,0,1) 100%)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, backdropFilter: 'blur(40px)' }}>
                         <div style={{ fontSize: '12rem', textShadow: '0 0 150px red', fontWeight: '900', color: 'white', animation: 'alertPulse 0.2s infinite' }}>💥 كـارثـة! 💥</div>
                         </div>
                     )}
 
+                    {/* Winner Modals */}
                     {roundWinner && !matchWinner && (
                         <div className="anim-cinematic" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.92)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, flexDirection: 'column', backdropFilter: 'blur(20px)' }}>
                         {showConfetti && Array.from({ length: 80 }).map((_, i) => (
@@ -980,7 +1061,7 @@ function App() {
                             <div style={{ fontSize: '8rem', fontWeight: '900', color: '#facc15', marginBottom: '50px', textShadow: '0 0 60px rgba(250, 204, 21, 0.8)' }}>
                                 {matchWinner === 1 ? (team1Name || 'الفريق الأول') : (team2Name || 'الفريق الثاني')}
                             </div>
-                            <button className="hero-btn" onClick={resetFullGame} style={{ fontSize: '1.5rem', padding: '20px 60px' }}>العودة للمحطة الرئيسية</button>
+                            <button className="pulse-btn" onClick={resetFullGame} style={{ fontSize: '1.5rem', padding: '20px 60px' }}>العودة للمحطة الرئيسية</button>
                         </div>
                         </div>
                     )}
@@ -988,10 +1069,12 @@ function App() {
             )}
         </div>
 
+        {/* إعلان اليسار (AdSense) */}
         <div className="ad-sidebar">
             <AdSenseWidget adSlot="2222222222" />
         </div>
 
+        {/* ================= زر ونافذة الدعم ================= */}
         <button 
             onClick={() => {AudioEngine.play('click'); setShowSupportModal(true);}}
             style={{
