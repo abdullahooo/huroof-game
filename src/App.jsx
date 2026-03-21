@@ -685,14 +685,14 @@ function App() {
                         textAlign: 'center',
                         lineHeight: '1'
                     }}>
-                        تحدي الحروف<br/>PRO
+                       حروف<br/>ZONE
                     </div>
 
                     <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', position: 'relative', zIndex: 10 }} className="anim-cinematic">
                         
                         <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '20px' }}>
                             <h1 style={{ fontSize: isMobile ? '2.2rem' : '4.8rem', fontWeight: '900', margin: '0 0 5px 0', color: '#fff' }}>
-                                تحدي الحروف <span style={{color: 'transparent', WebkitTextStroke: '1px rgba(255,255,255,0.2)'}}>PRO</span>
+                               حروف <span style={{color: 'transparent', WebkitTextStroke: '1px rgba(255,255,255,0.2)'}}>ZONE</span>
                             </h1>
                             <p style={{ fontSize: isMobile ? '0.9rem' : '1.3rem' }}>محطة الإعداد التكتيكي</p>
                         </div>
