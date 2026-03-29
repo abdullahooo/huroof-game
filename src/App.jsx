@@ -154,7 +154,7 @@ function App() {
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [difficulty, setDifficulty] = useState('medium');
   const [victoryCondition, setVictoryCondition] = useState('path'); 
-  const [hostMode, setHostMode] = useState('human'); 
+  const [hostMode, setHostMode] = useState('smart'); 
   const [modes, setModes] = useState({ gold: false, mines: false, virus: false, blind: false });
 
   // === PeerJS Remote Control State ===
@@ -1014,7 +1014,18 @@ function App() {
                             <h3 className="panel-title">🎙️ إدارة المواجهة والمُقدم</h3>
                             <div className="settings-flex" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                                 <button className={`pulse-btn ${hostMode === 'smart' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setHostMode('smart')}}>🤖 مُقدم ذكي (أسئلة مدمجة)</button>
-                                <button className={`pulse-btn ${hostMode === 'human' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setHostMode('human')}}>👤 مُقدم إنسان (أسئلة خارجية)</button>
+                                <div style={{ position: 'relative' }}>
+                                    <button 
+                                        className="pulse-btn" 
+                                        disabled 
+                                        style={{ opacity: 0.4, cursor: 'not-allowed', filter: 'blur(1px) grayscale(100%)' }}
+                                    >
+                                        👤 مُقدم إنسان (أسئلة خارجية)
+                                    </button>
+                                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: '#ef4444', color: '#fff', padding: '4px 12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.9rem', zIndex: 10, boxShadow: '0 0 15px rgba(239, 68, 68, 0.8)', whiteSpace: 'nowrap' }}>
+                                        قريباً ⏳
+                                    </div>
+                                </div>
                             </div>
                             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px 20px', borderRadius: '12px', marginTop: '20px', borderRight: '4px solid #3b82f6' }}>
                                 <p style={{color: '#a1a1aa', fontSize: '1rem', margin: 0, fontWeight: '600'}}>
