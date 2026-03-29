@@ -213,8 +213,8 @@ function App() {
     const remote = initialRemoteId;
     const clientId = 'huroof_' + Math.random().toString(16).substr(2, 8);
     
-    // Connect to a free, ultra-fast public MQTT broker
-    const client = mqtt.connect('wss://broker.hivemq.com:8443/mqtt', { clientId });
+    // Connect to a free, ultra-fast public MQTT broker (EMQX)
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId });
     mqttClientRef.current = client;
 
     if (remote) {
