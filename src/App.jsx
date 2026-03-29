@@ -1,4 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Peer } from 'peerjs';
+import QRCode from 'react-qr-code';
+
+const sanitizeHtml = (str) => {
+  if (!str) return '';
+  return str.toString().replace(/[<>&"']/g, (match) => {
+    switch (match) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return match;
+    }
+  });
+};
 
 const ALPHABET = ['أ','ب','ت','ث','ج','ح','خ','د','ذ','ر','ز','س','ش','ص','ض','ط','ظ','ع','غ','ف','ق','ك','ل','م','ن','هـ','و','ي'];
 
@@ -138,7 +154,19 @@ function App() {
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [difficulty, setDifficulty] = useState('medium');
   const [victoryCondition, setVictoryCondition] = useState('path'); 
+  const [hostMode, setHostMode] = useState('human'); 
   const [modes, setModes] = useState({ gold: false, mines: false, virus: false, blind: false });
+
+  // === PeerJS Remote Control State ===
+  const initialRemoteId = new URLSearchParams(window.location.search).get('remote');
+  
+  const [peerId, setPeerId] = useState('');
+  const [remoteConnection, setRemoteConnection] = useState(null);
+  const [connectionError, setConnectionError] = useState('');
+  const [isRemoteClient, setIsRemoteClient] = useState(!!initialRemoteId);
+  const [remoteData, setRemoteData] = useState(null);
+  const [remoteActionTrigger, setRemoteActionTrigger] = useState(null);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [team1Name, setTeam1Name] = useState('');
   const [team2Name, setTeam2Name] = useState('');
   const [team1Color, setTeam1Color] = useState('#00D2FF'); 
@@ -171,12 +199,92 @@ function App() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [isAmbientOn, setIsAmbientOn] = useState(false);
 
-  const [team1Lifelines, setTeam1Lifelines] = useState({ reveal: true, silence: true, changeQ: true });
-  const [team2Lifelines, setTeam2Lifelines] = useState({ reveal: true, silence: true, changeQ: true });
+  const [team1Lifelines, setTeam1Lifelines] = useState({ ai_assist: true, silence: true, changeQ: true });
+  const [team2Lifelines, setTeam2Lifelines] = useState({ ai_assist: true, silence: true, changeQ: true });
 
   const [silencedTimer, setSilencedTimer] = useState(0);
   const [silencedTeam, setSilencedTeam] = useState(null);
-  const [isPartialRevealed, setIsPartialRevealed] = useState(false);
+  const [aiAssistState, setAiAssistState] = useState({ isProcessing: false, active: false, hint: '', log: '' });
+
+  const useViteRelay = Boolean(import.meta && import.meta.hot);
+
+  // === إعدادات اتصال الجوال (Vite Local Relay + PeerJS Fallback) ===
+  useEffect(() => {
+    const remote = initialRemoteId;
+    if (remote) {
+      if (useViteRelay) {
+         setRemoteConnection(true); // اتصال ناجح محلياً (هذا يحدث للجوال فقط)
+         import.meta.hot.send('huroof:remote_action', { type: 'CONNECTED' }); // إخبار المقدم بأن جواله اتصل بنجاح
+         const handler = (data) => setRemoteData(data);
+         import.meta.hot.on('huroof:state_update', handler);
+         return () => { if(import.meta.hot.off) import.meta.hot.off('huroof:state_update', handler); };
+      }
+      
+      const peer = new Peer();
+      peer.on('open', () => {
+         const conn = peer.connect(remote);
+         conn.on('open', () => { setRemoteConnection(conn); conn.send({ type: 'CONNECTED' }); });
+         conn.on('data', (data) => setRemoteData(data));
+         conn.on('close', () => setConnectionError('انقطع الاتصال فجأة بالشاشة الرئيسية.'));
+         conn.on('error', (err) => setConnectionError('خطأ: ' + err.message));
+      });
+      peer.on('error', (err) => {
+          if (err.type === 'peer-unavailable') setConnectionError('الشاشة الرئيسية غير متاحة! قد تكون أغلقت اللعبة الأساسية.');
+          else if (err.type === 'network' || err.type === 'webrtc') setConnectionError(`تم حظر الاتصال أو فشل الخادم 🛑! الرجاء إيقاف "موانع التتبع".`);
+          else setConnectionError(`فشل الاتصال: [${err.type}] ${err.message}`);
+      });
+      return () => { peer.destroy(); };
+    } else {
+      const id = 'huroof-' + Math.random().toString(36).substr(2, 6);
+      setPeerId(id);
+      // لا نجبر اتصال المقدم هنا.. يجب أن ينتظر الجوال ليرسل CONNECTED
+      const peer = new Peer(id);
+      peer.on('connection', (conn) => setRemoteConnection(conn));
+      return () => { peer.destroy(); };
+    }
+  }, [initialRemoteId]);
+
+  const handleRemoteAction = useCallback((data) => {
+      setRemoteActionTrigger(data);
+  }, []);
+
+  useEffect(() => {
+      if (!isRemoteClient) {
+          if (useViteRelay) {
+              const handler = (data) => handleRemoteAction(data);
+              import.meta.hot.on('huroof:remote_action', handler);
+              return () => { if(import.meta.hot.off) import.meta.hot.off('huroof:remote_action', handler); };
+          } else if (remoteConnection && remoteConnection.on) {
+              remoteConnection.on('data', handleRemoteAction);
+              return () => {
+                  remoteConnection.removeAllListeners && remoteConnection.removeAllListeners('data');
+                  remoteConnection.on('data', handleRemoteAction);
+              }
+          }
+      }
+  }, [useViteRelay, remoteConnection, handleRemoteAction, isRemoteClient]);
+
+  useEffect(() => {
+      if (!isRemoteClient && remoteConnection) {
+          const payload = {
+              activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed,
+              team1Name: team1Name || 'الفريق الأول', team2Name: team2Name || 'الفريق الثاني',
+              t1Color: team1Color, t2Color: team2Color, isTimerRunning,
+              team1Lifelines, team2Lifelines, aiAssistState
+          };
+          if (useViteRelay) {
+              import.meta.hot.send('huroof:state_update', payload);
+          } else if (remoteConnection && typeof remoteConnection.send === 'function') {
+              remoteConnection.send({ type: 'STATE_UPDATE', ...payload });
+          }
+      }
+  }, [useViteRelay, remoteConnection, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, isRemoteClient]);
+
+  // دالة مخصصة لإرسال الأوامر تعمل على كلتا الشبكتين
+  const sendRemoteEvent = (data) => {
+      if (useViteRelay) import.meta.hot.send('huroof:remote_action', data);
+      else if (remoteConnection && typeof remoteConnection.send === 'function') remoteConnection.send(data);
+  };
 
   const toggleMode = (mode) => { AudioEngine.play('click'); setModes(prev => ({...prev, [mode]: !prev[mode]})); };
 
@@ -202,7 +310,7 @@ function App() {
   // ================== نظام التوقيت وتوقيت التسكيت ==================
   useEffect(() => {
     let timer;
-    if (activeCell !== null && timeLeft > 0 && !explodedMine) {
+    if (activeCell !== null && timeLeft > 0 && !explodedMine && isTimerRunning) {
       timer = setInterval(() => {
         setTimeLeft(prev => {
             if (prev <= 11 && prev > 1) AudioEngine.play('heartbeat');
@@ -211,7 +319,7 @@ function App() {
       }, 1000);
     }
     return () => clearInterval(timer);
-  }, [activeCell, timeLeft, explodedMine]);
+  }, [activeCell, timeLeft, explodedMine, isTimerRunning]);
 
   useEffect(() => {
       let t;
@@ -229,10 +337,14 @@ function App() {
 
     if (victoryCondition === 'domination') {
        if (emptyCells === 0) {
-           const t1 = currentCells.filter(c => c === 1).length;
-           const t2 = currentCells.filter(c => c === 2).length;
-           if (t1 > t2) return 1;
-           if (t2 > t1) return 2;
+           let s1 = 0, s2 = 0;
+           currentCells.forEach((c, idx) => {
+               const points = goldenCells.includes(idx) ? 2 : 1;
+               if (c === 1) s1 += points;
+               if (c === 2) s2 += points;
+           });
+           if (s1 > s2) return 1;
+           if (s2 > s1) return 2;
            return 'tie';
        }
        return false;
@@ -247,8 +359,8 @@ function App() {
     }
     while (queue.length > 0) {
       const current = queue.shift();
-      if (teamStatus === 1 && current >= gridSize * (gridSize - 1)) return true;
-      if (teamStatus === 2 && current % gridSize === gridSize - 1) return true; 
+      if (teamStatus === 1 && current >= gridSize * (gridSize - 1)) return 1;
+      if (teamStatus === 2 && current % gridSize === gridSize - 1) return 2; 
       const neighbors = getNeighbors(current, gridSize);
       for (const n of neighbors) {
         if (currentCells[n] === teamStatus && !visited.has(n)) { visited.add(n); queue.push(n); }
@@ -257,16 +369,18 @@ function App() {
     
     if (emptyCells === 0) return 'tie';
     return false;
-  }, [gridSize, victoryCondition]);
+  }, [gridSize, victoryCondition, goldenCells]);
 
   const fetchQuestion = async (letter) => {
     try {
-      const url = 'https://gist.githubusercontent.com/abdullahooo/902acfdf086619ba9826cd242abb70fb/raw/4c554fa7ad6e282df3e636af1ac1996478bd439f/gistfile1.txt';
+      const url = '/questions.csv';
       const response = await fetch(url);
       
       if (!response.ok) throw new Error('فشل الاتصال بالرابط');
       
-      const text = await response.text();
+      const buffer = await response.arrayBuffer();
+      const decoder = new TextDecoder('utf-8');
+      const text = decoder.decode(buffer);
       const lines = text.split(/\r?\n/);
       let allQuestions = [];
       lines.forEach(line => {
@@ -274,11 +388,11 @@ function App() {
           const parts = line.split(',');
           if (parts.length >= 4) {
               allQuestions.push({
-                  letter: parts[0].trim().replace(/^\uFEFF/, ''), 
-                  question: parts[1].trim(),
-                  answer: parts[2].trim(),
-                  difficulty: parts[3].trim(),
-                  id: parts[1].trim() 
+                  letter: sanitizeHtml(parts[0].trim().replace(/^\uFEFF/, '')), 
+                  question: sanitizeHtml(parts[1].trim()),
+                  answer: sanitizeHtml(parts[2].trim()),
+                  difficulty: sanitizeHtml(parts[3].trim()),
+                  id: sanitizeHtml(parts[1].trim()) 
               });
           }
       });
@@ -316,7 +430,7 @@ function App() {
       AudioEngine.play('click');
       setActiveCell(index);
       
-      setIsPartialRevealed(false);
+      setAiAssistState({ isProcessing: false, active: false, hint: '', log: '' });
       setSilencedTimer(0);
       setSilencedTeam(null);
 
@@ -329,6 +443,7 @@ function App() {
         return;
       }
       setTimeLeft(timerDuration);
+      setIsTimerRunning(hostMode === 'smart');
       setIsAnswerRevealed(false);
       setCurrentQuestion('جاري تشفير البيانات واستخراج السؤال...');
       setCurrentAnswer('');
@@ -381,6 +496,69 @@ function App() {
     setActiveCell(null);
   }, [activeCell, goldenCells, virusCells, checkWin, team1Wins, team2Wins, maxRounds, gridSize]);
 
+  const useLifeline = useCallback((team, type) => {
+    AudioEngine.play('click');
+    if (team === 1) setTeam1Lifelines(prev => ({...prev, [type]: false}));
+    if (team === 2) setTeam2Lifelines(prev => ({...prev, [type]: false}));
+    
+    if (type === 'ai_assist') {
+        const fullAnswer = currentAnswer || 'لا توجد بيانات';
+        const hintLen = Math.ceil(fullAnswer.length / 2);
+        const hintText = fullAnswer.split('').map((char, i) => (i < hintLen || char === ' ') ? char : '█').join('');
+        
+        setAiAssistState({ isProcessing: true, active: false, hint: hintText, log: '' });
+        
+        let ms = 0;
+        const interval = setInterval(() => {
+           ms += 400;
+           if (ms === 400) setAiAssistState(s => ({ ...s, log: '> Huroof_AI: Matrix analysis initiated...' }));
+           else if (ms === 800) setAiAssistState(s => ({ ...s, log: '> Huroof_AI: Decrypting node encryption codes...' }));
+           else if (ms === 1200) setAiAssistState(s => ({ ...s, log: '> Huroof_AI: Extracting semantic partials...' }));
+           else if (ms === 1600) setAiAssistState(s => ({ ...s, log: '> Huroof_AI: Data recovered successfully.' }));
+           else if (ms >= 2000) {
+               clearInterval(interval);
+               setAiAssistState({ isProcessing: false, active: true, hint: hintText, log: '' });
+               AudioEngine.play('win'); 
+           }
+        }, 400);
+    }
+    if (type === 'silence') {
+        setSilencedTeam(team === 1 ? 2 : 1);
+        setSilencedTimer(15);
+    }
+    if (type === 'changeQ') {
+        setCurrentQuestion('جاري الاتصال بالخادم لاستبدال السؤال...');
+        setCurrentAnswer('');
+        setAiAssistState({ isProcessing: false, active: false, hint: '', log: '' });
+        fetchQuestion(letters[activeCell]);
+    }
+  }, [currentAnswer, letters, activeCell]);
+
+  useEffect(() => {
+      if (remoteActionTrigger) {
+          const data = remoteActionTrigger;
+          AudioEngine.play('click');
+          if (data.type === 'CONNECTED') {
+              setRemoteConnection(true);
+          } else if (data.type === 'CORRECT') {
+              handleAnswer(data.team);
+          } else if (data.type === 'WRONG') {
+              AudioEngine.play('wrong');
+              setActiveCell(null);
+          } else if (data.type === 'SKIP') {
+              AudioEngine.play('click');
+              setActiveCell(null);
+          } else if (data.type === 'REVEAL') {
+              setIsAnswerRevealed(true);
+          } else if (data.type === 'TOGGLE_TIMER') {
+              setIsTimerRunning(prev => !prev);
+          } else if (data.type === 'LIFELINE') {
+              useLifeline(data.team, data.lifeline);
+          }
+          setRemoteActionTrigger(null);
+      }
+  }, [remoteActionTrigger, handleAnswer, useLifeline]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (activeCell === null || roundWinner || matchWinner) return;
@@ -395,26 +573,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeCell, isAnswerRevealed, handleAnswer, roundWinner, matchWinner]);
 
-  const useLifeline = (team, type) => {
-    AudioEngine.play('click');
-    if (team === 1) setTeam1Lifelines(prev => ({...prev, [type]: false}));
-    if (team === 2) setTeam2Lifelines(prev => ({...prev, [type]: false}));
-    
-    if (type === 'reveal') {
-        setIsPartialRevealed(true);
-    }
-    if (type === 'silence') {
-        setSilencedTeam(team === 1 ? 2 : 1);
-        setSilencedTimer(15);
-    }
-    if (type === 'changeQ') {
-        setCurrentQuestion('جاري الاتصال بالخادم لاستبدال السؤال...');
-        setCurrentAnswer('');
-        setIsPartialRevealed(false);
-        fetchQuestion(letters[activeCell]);
-    }
-  };
-
   const nextRound = () => { 
       AudioEngine.play('click'); setShowConfetti(false);
       setCells(Array(gridSize * gridSize).fill(0)); 
@@ -424,7 +582,7 @@ function App() {
   const resetFullGame = () => {
     AudioEngine.play('click'); setIsGameStarted(false); setShowConfetti(false); setCells(Array(gridSize * gridSize).fill(0));
     setTeam1Score(0); setTeam2Score(0); setTeam1Wins(0); setTeam2Wins(0); setUsedQuestionIds([]);
-    setTeam1Lifelines({ reveal: true, silence: true, changeQ: true }); setTeam2Lifelines({ reveal: true, silence: true, changeQ: true });
+    setTeam1Lifelines({ ai_assist: true, silence: true, changeQ: true }); setTeam2Lifelines({ ai_assist: true, silence: true, changeQ: true });
     setRoundWinner(null); setMatchWinner(null); setCurrentRound(1);
     if(isAmbientOn) { AudioEngine.toggleAmbient(); setIsAmbientOn(false); }
   };
@@ -483,7 +641,7 @@ function App() {
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
     
-    .main-layout { display: flex; width: 100vw; height: 100vh; overflow: hidden; background: var(--bg-deep); }
+    .main-layout { display: flex; width: 100vw; height: 100dvh; overflow: hidden; background: var(--bg-deep); }
 
     .ad-sidebar {
         width: 180px; background: rgba(10, 10, 15, 0.8);
@@ -498,7 +656,7 @@ function App() {
         text-align: center; background: rgba(255,255,255,0.02); box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
 
-    .game-area { flex: 1; position: relative; height: 100vh; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
+    .game-area { flex: 1; position: relative; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
     
     .app-container { 
         flex: 1;
@@ -607,14 +765,31 @@ function App() {
     }
     
     @media (max-width: 1200px) { .ad-sidebar { display: none !important; } }
-    @media (max-width: 1024px) { .app-container { padding: 15px !important; } h1 { font-size: 3rem !important; } .esport-panel { padding: 20px !important; } }
+    @media (max-width: 1024px) { 
+        .app-container { padding: 15px !important; } 
+        h1 { font-size: 2.5rem !important; } 
+        .esport-panel { padding: 20px !important; }
+        .command-center { grid-template-columns: 1fr !important; gap: 15px !important; padding: 20px !important; }
+        .command-center > div { justify-content: center !important; text-align: center !important; width: 100% !important; }
+        .hex-container { padding: 20px !important; transform: scale(0.95); margin-top: 20px; }
+        .live-stats { flex-direction: column !important; gap: 15px !important; margin-bottom: 20px; }
+    }
     @media (max-width: 768px) {
         h1 { font-size: 2rem !important; }
-        div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: center !important; gap: 15px !important; }
-        .esport-panel { width: 100% !important; min-width: unset !important; padding: 15px !important; }
+        .esport-panel { width: 100% !important; min-width: unset !important; padding: 20px !important; box-sizing: border-box; }
+        .panel-title { font-size: 1.1rem !important; justify-content: center; text-align: center; }
+        .pulse-btn { padding: 12px !important; font-size: 0.95rem !important; flex: 1 1 100% !important; justify-content: center; }
+        .pro-input { padding: 14px 20px !important; font-size: 1rem !important; }
+        .launch-btn { font-size: 1.2rem !important; padding: 20px !important; }
+        .settings-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
+        .settings-flex { flex-direction: column !important; width: 100%; }
+        .grid-options { display: grid !important; grid-template-columns: repeat(2, 1fr) !important; width: 100%; gap: 10px !important; }
+        .grid-options .pulse-btn { flex: unset !important; }
         div[style*="font-size: 4.5rem"] { font-size: 2.5rem !important; }
         div[style*="font-size: 1.6rem"] { font-size: 1.2rem !important; }
-        .hex-container { padding: 20px 10px !important; transform: scale(0.95); }
+        .team-inputs { flex-direction: column !important; gap: 12px; }
+        .color-picker { width: 100% !important; height: 50px !important; }
+        .hex-container { padding: 10px !important; transform: scale(0.9); '--hex-w': 'clamp(25px, calc(min(80vw, 40vh) / ${gridSize}), 80px)' !important; }
         .command-center { grid-template-columns: 1fr !important; text-align: center; gap: 20px !important; padding: 15px !important; }
         .command-center > div { justify-content: center !important; text-align: center !important; }
         .live-stats { flex-direction: column !important; gap: 20px !important; position: relative !important; bottom: 0 !important; margin-top: 20px;}
@@ -642,6 +817,108 @@ function App() {
     @keyframes fall { 0% { transform: translateY(-10vh) rotate(0deg); } 100% { transform: translateY(110vh) rotate(720deg); } }
   `;
 
+  if (isRemoteClient) {
+      if (connectionError) return (
+          <>
+          <style>{globalStyles}</style>
+          <div style={{color:'white', textAlign:'center', marginTop:'50px', padding: '20px', fontFamily: 'Cairo, sans-serif'}}>
+              <h2 style={{color: '#ef4444'}}>❌ فشل الاتصال</h2>
+              <p style={{fontSize: '1.5rem', marginTop: '20px', lineHeight: '1.6'}}>{connectionError}</p>
+          </div>
+          </>
+      );
+
+      if (!remoteConnection) return (
+          <>
+          <style>{globalStyles}</style>
+          <div style={{color:'white', textAlign:'center', marginTop:'50px', fontSize:'2rem', fontFamily: 'Cairo, sans-serif'}}>جاري الاتصال بالشاشة الرئيسية...</div>
+          </>
+      );
+      
+      const renderButton = (text, color, onClick) => (
+          <button onClick={() => { AudioEngine.play('click'); onClick(); }} style={{ flex: 1, padding: '20px', background: color, color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.2rem', fontWeight: 'bold' }}>{text}</button>
+      );
+
+      return (
+          <>
+          <style>{globalStyles}</style>
+          <div style={{ padding: '20px', backgroundColor: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: '20px', color: 'white', fontFamily: 'Cairo, sans-serif' }}>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '20px', padding: '15px', textAlign: 'center' }}>
+                  <h2 style={{ margin: 0, color: '#facc15' }}>أدوات المُقدم السرية 🎙️</h2>
+              </div>
+
+              {!remoteData || remoteData.activeCell === null ? (
+                  <div style={{ textAlign: 'center', marginTop: '50px', fontSize: '1.5rem', color: '#a1a1aa' }}>
+                      الرجاء اختيار خلية من الشاشة الرئيسية لبدء التحكم...
+                  </div>
+              ) : (
+                  <>
+                      {/* Timer Display & Controls */}
+                      <div style={{ textAlign: 'center', fontSize: '5rem', fontWeight: '900', color: remoteData.timeLeft <= 10 ? '#ef4444' : '#fff' }}>
+                          00:{remoteData.timeLeft < 10 ? `0${remoteData.timeLeft}` : remoteData.timeLeft}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '15px' }}>
+                         {renderButton(remoteData.isTimerRunning ? '⏸️ إيقاف المؤقت' : '▶️ تشغيل المؤقت', remoteData.isTimerRunning ? '#f59e0b' : '#10b981', () => sendRemoteEvent({ type: 'TOGGLE_TIMER' }))}
+                      </div>
+
+                      {/* Question Box */}
+                      <div style={{ background: 'rgba(255,255,255,0.1)', padding: '20px', borderRadius: '15px', fontSize: '1.5rem', textAlign: 'center' }}>
+                          <span style={{color: '#94a3b8', fontSize: '1rem', display: 'block', marginBottom: '10px'}}>السؤال:</span>
+                          {remoteData.currentQuestion}
+                      </div>
+
+                      {/* Answer Box */}
+                      <div style={{ background: '#3b82f6', padding: '20px', borderRadius: '15px', fontSize: '2rem', textAlign: 'center', fontWeight: 'bold' }}>
+                          <span style={{color: 'rgba(255,255,255,0.7)', fontSize: '1rem', display: 'block', marginBottom: '10px'}}>الإجابة:</span>
+                          {remoteData.currentAnswer || '(أسئلة خارجية - لا توجد إجابة)'}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', gap: '15px', marginTop: '10px' }}>
+                          {renderButton(`✔️ صحيح (${remoteData.team1Name})`, remoteData.t1Color, () => sendRemoteEvent({ type: 'CORRECT', team: 1 }))}
+                          {renderButton(`✔️ صحيح (${remoteData.team2Name})`, remoteData.t2Color, () => sendRemoteEvent({ type: 'CORRECT', team: 2 }))}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '15px' }}>
+                          <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'WRONG' }); }} style={{ flex: 1, padding: '15px', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', color: '#ef4444', borderRadius: '15px', fontSize: '1.2rem', fontWeight: 'bold' }}>❌ إجابة خاطئة</button>
+                          <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'SKIP' }); }} style={{ flex: 1, padding: '15px', background: 'rgba(156, 163, 175, 0.1)', border: '2px solid gray', color: 'gray', borderRadius: '15px', fontSize: '1.2rem', fontWeight: 'bold' }}>⏭️ تخطي</button>
+                      </div>
+
+                      {/* Lifelines Remote Console */}
+                      {remoteData.team1Lifelines && remoteData.team2Lifelines && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '15px', background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
+                             <div style={{textAlign: 'center', color: '#facc15', fontWeight: 'bold', fontSize: '1.1rem', letterSpacing: '1px'}}>⚡ وسائل المساعدة ⚡</div>
+                             <div style={{ display: 'flex', gap: '15px' }}>
+                                {/* Team 1 */}
+                                <div style={{flex: 1, borderTop: `3px solid ${remoteData.t1Color}`, paddingTop:'15px', display:'flex', flexDirection:'column', gap:'10px'}}>
+                                    <div style={{color: remoteData.t1Color, textAlign:'center', fontSize:'1rem', fontWeight:'900'}}>{remoteData.team1Name}</div>
+                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 1, lifeline: 'ai_assist'}); }} disabled={!remoteData.team1Lifelines.ai_assist} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team1Lifelines.ai_assist ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team1Lifelines.ai_assist ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent', color: remoteData.team1Lifelines.ai_assist ? '#fff' : '#475569', cursor: remoteData.team1Lifelines.ai_assist ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🧠 ذكاء حـــروف</button>
+                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 1, lifeline: 'silence'}); }} disabled={!remoteData.team1Lifelines.silence} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team1Lifelines.silence ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team1Lifelines.silence ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'transparent', color: remoteData.team1Lifelines.silence ? '#fff' : '#475569', cursor: remoteData.team1Lifelines.silence ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔇 تسكيت الخصم</button>
+                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 1, lifeline: 'changeQ'}); }} disabled={!remoteData.team1Lifelines.changeQ} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team1Lifelines.changeQ ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team1Lifelines.changeQ ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent', color: remoteData.team1Lifelines.changeQ ? '#fff' : '#475569', cursor: remoteData.team1Lifelines.changeQ ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔄 استبدال السؤال</button>
+                                </div>
+                                {/* Team 2 */}
+                                <div style={{flex: 1, borderTop: `3px solid ${remoteData.t2Color}`, paddingTop:'15px', display:'flex', flexDirection:'column', gap:'10px'}}>
+                                    <div style={{color: remoteData.t2Color, textAlign:'center', fontSize:'1rem', fontWeight:'900'}}>{remoteData.team2Name}</div>
+                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 2, lifeline: 'ai_assist'}); }} disabled={!remoteData.team2Lifelines.ai_assist} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team2Lifelines.ai_assist ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team2Lifelines.ai_assist ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent', color: remoteData.team2Lifelines.ai_assist ? '#fff' : '#475569', cursor: remoteData.team2Lifelines.ai_assist ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🧠 ذكاء حـــروف</button>
+                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 2, lifeline: 'silence'}); }} disabled={!remoteData.team2Lifelines.silence} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team2Lifelines.silence ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team2Lifelines.silence ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'transparent', color: remoteData.team2Lifelines.silence ? '#fff' : '#475569', cursor: remoteData.team2Lifelines.silence ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔇 تسكيت الخصم</button>
+                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 2, lifeline: 'changeQ'}); }} disabled={!remoteData.team2Lifelines.changeQ} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team2Lifelines.changeQ ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team2Lifelines.changeQ ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent', color: remoteData.team2Lifelines.changeQ ? '#fff' : '#475569', cursor: remoteData.team2Lifelines.changeQ ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔄 استبدال السؤال</button>
+                                </div>
+                             </div>
+                          </div>
+                      )}
+
+                      {/* Reveal Answer on Screen */}
+                      <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'REVEAL' }); }} style={{ width: '100%', marginTop: '15px', padding: '18px', background: remoteData.isAnswerRevealed ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)', color: remoteData.isAnswerRevealed ? '#10b981' : '#fff', border: remoteData.isAnswerRevealed ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.2)', borderRadius: '15px', fontSize: '1.2rem', fontWeight: '900', transition: 'all 0.3s' }}>
+                          {remoteData.isAnswerRevealed ? '✅ الإجابة معروضة للجمهور' : '👁️ إظهار الإجابة للجمهور'}
+                      </button>
+                  </>
+              )}
+          </div>
+          </>
+      );
+  }
+
   return (
     <div className="main-layout">
         <style>{globalStyles}</style>
@@ -659,6 +936,30 @@ function App() {
                 >
                     {isAmbientOn ? '🔊' : '🔈'}
                 </button>
+            )}
+
+            {isGameStarted && hostMode === 'human' && !remoteConnection && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(5,5,8,0.95)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)' }}>
+                    <h2 style={{ fontSize: '3rem', color: '#fff', marginBottom: '20px' }}>📱 اقتران جهاز المُقدم</h2>
+                    <p style={{ fontSize: '1.5rem', color: '#a1a1aa', marginBottom: '40px', maxWidth: '600px', textAlign: 'center', lineHeight: '1.6' }}>
+                        الرجاء فتح كاميرا جوالك ومسح رمز الاستجابة السريعة (QR Code) لتفعيل غرفة التحكم السرية. ستختفي هذه الشاشة تلقائياً بمجرد اتصالك بنجاح.
+                    </p>
+                    <div style={{ background: '#fff', padding: '30px', borderRadius: '24px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <QRCode value={`${window.location.origin}${window.location.pathname}?remote=${peerId}`} size={250} />
+                        <div style={{ marginTop: '20px', background: '#f8fafc', padding: '10px 20px', borderRadius: '8px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
+                            <p style={{ margin: '0 0 5px 0', fontSize: '0.9rem', color: '#64748b', textAlign: 'center' }}>أو انسخ الرابط المباشر للتجربة:</p>
+                            <input 
+                                type="text" 
+                                readOnly 
+                                value={`${window.location.origin}${window.location.pathname}?remote=${peerId}`}
+                                onClick={(e) => { e.target.select(); navigator.clipboard.writeText(e.target.value); AudioEngine.play('click'); }}
+                                style={{ width: '100%', padding: '10px', fontSize: '0.9rem', color: '#0f172a', background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', outline: 'none' }}
+                                title="انقر للنسخ"
+                            />
+                        </div>
+                    </div>
+                    <button onClick={() => {AudioEngine.play('click'); setIsGameStarted(false)}} style={{ marginTop: '50px', background: 'transparent', color: '#ef4444', border: '2px solid #ef4444', padding: '15px 40px', borderRadius: '16px', fontSize: '1.2rem', cursor: 'pointer', fontWeight: 'bold' }}>إلغاء والعودة للإعدادات</button>
+                </div>
             )}
 
             {!isGameStarted ? (
@@ -699,7 +1000,7 @@ function App() {
                         
                         <div className="esport-panel">
                             <h3 className="panel-title">🏆 نظام التنافس والانتصار</h3>
-                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                            <div className="settings-flex" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                                 <button className={`pulse-btn ${victoryCondition === 'path' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setVictoryCondition('path')}}>⚔️ الربط الاستراتيجي (كلاسيكي)</button>
                                 <button className={`pulse-btn ${victoryCondition === 'domination' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setVictoryCondition('domination')}}>🌍 الهيمنة الميدانية (تجميع نقاط)</button>
                             </div>
@@ -711,19 +1012,34 @@ function App() {
                         </div>
 
                         <div className="esport-panel">
+                            <h3 className="panel-title">🎙️ إدارة المواجهة والمُقدم</h3>
+                            <div className="settings-flex" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                                <button className={`pulse-btn ${hostMode === 'smart' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setHostMode('smart')}}>🤖 مُقدم ذكي (أسئلة مدمجة)</button>
+                                <button className={`pulse-btn ${hostMode === 'human' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setHostMode('human')}}>👤 مُقدم إنسان (أسئلة خارجية)</button>
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px 20px', borderRadius: '12px', marginTop: '20px', borderRight: '4px solid #3b82f6' }}>
+                                <p style={{color: '#a1a1aa', fontSize: '1rem', margin: 0, fontWeight: '600'}}>
+                                    {hostMode === 'smart' ? 'يقوم النظام تلقائياً بسحب وطرح الأسئلة وتوفير التلميحات والأجوبة.' : 'يستخدم المقدم أسئلة من كروته الخاصة ويتحكم بتوزيع النقاط مباشرة على الشاشة.'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="esport-panel">
                             <h3 className="panel-title">✨ خصائص الساحة المتقدمة</h3>
-                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                                <button className={`pulse-btn ${modes.gold ? 'active' : ''}`} onClick={() => toggleMode('gold')}>🌟 الخلايا الذهبية (+2 نقطة)</button>
+                            <div className="settings-flex" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                                {victoryCondition === 'domination' && (
+                                    <button className={`pulse-btn ${modes.gold ? 'active' : ''}`} onClick={() => toggleMode('gold')}>🌟 الخلايا الذهبية (+2 نقطة)</button>
+                                )}
                                 <button className={`pulse-btn ${modes.mines ? 'active' : ''}`} onClick={() => toggleMode('mines')}>💣 حقل الألغام (تدمير خلية)</button>
                                 <button className={`pulse-btn ${modes.virus ? 'active' : ''}`} onClick={() => toggleMode('virus')}>🦠 فيروس العدوى (احتلال جيران)</button>
                                 <button className={`pulse-btn ${modes.blind ? 'active' : ''}`} onClick={() => toggleMode('blind')}>👁️ الإخفاء التام (مستوى الرواد)</button>
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+                        <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
                             <div className="esport-panel">
                                 <h3 className="panel-title">📐 مساحة المعركة</h3>
-                                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                <div className="grid-options" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                                     {[5, 6, 7, 8].map(size => (<button key={size} className={`pulse-btn ${gridSize === size ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setGridSize(size)}} style={{ flex: 1, padding: '16px' }}>{size}x{size}</button>))}
                                 </div>
                             </div>
@@ -731,10 +1047,10 @@ function App() {
                             <div className="esport-panel">
                                 <h3 className="panel-title">⏱️ قوانين الوقت والجولات</h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                    <div className="grid-options" style={{ display: 'flex', gap: '12px' }}>
                                         {[1, 3, 5, 999].map(r => (<button key={r} className={`pulse-btn ${maxRounds === r ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setMaxRounds(r)}} style={{ flex: 1, padding: '12px' }}>{r === 999 ? 'مفتوح' : `${r} جولات`}</button>))}
                                     </div>
-                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                    <div className="grid-options" style={{ display: 'flex', gap: '12px' }}>
                                         {[15, 30, 45, 60].map(t => (<button key={t} className={`pulse-btn ${timerDuration === t ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setTimerDuration(t)}} style={{ flex: 1, padding: '12px' }}>{t} ثانية</button>))}
                                     </div>
                                 </div>
@@ -742,20 +1058,24 @@ function App() {
 
                             <div className="esport-panel" style={{ borderTop: `4px solid ${team1Color}`, boxShadow: `0 15px 40px ${team1Color}15` }}>
                                 <h3 className="panel-title" style={{ color: team1Color }}>هوية الفريق الأول</h3>
-                                <input type="text" className="pro-input" placeholder="اسم الفريق..." value={team1Name} onChange={e => setTeam1Name(e.target.value)} style={{ marginBottom: '20px' }} />
-                                <input type="color" className="color-picker" value={team1Color} onChange={e => setTeam1Color(e.target.value)} />
+                                <div className="team-inputs" style={{ display: 'flex', gap: '10px' }}>
+                                    <input type="text" className="pro-input" placeholder="اسم الفريق..." value={team1Name} onChange={e => setTeam1Name(sanitizeHtml(e.target.value))} style={{ flex: 1 }} />
+                                    <input type="color" className="color-picker" value={team1Color} onChange={e => setTeam1Color(e.target.value)} style={{ width: '60px' }} />
+                                </div>
                             </div>
 
                             <div className="esport-panel" style={{ borderTop: `4px solid ${team2Color}`, boxShadow: `0 15px 40px ${team2Color}15` }}>
                                 <h3 className="panel-title" style={{ color: team2Color }}>هوية الفريق الثاني</h3>
-                                <input type="text" className="pro-input" placeholder="اسم الفريق..." value={team2Name} onChange={e => setTeam2Name(e.target.value)} style={{ marginBottom: '20px' }} />
-                                <input type="color" className="color-picker" value={team2Color} onChange={e => setTeam2Color(e.target.value)} />
+                                <div className="team-inputs" style={{ display: 'flex', gap: '10px' }}>
+                                    <input type="text" className="pro-input" placeholder="اسم الفريق..." value={team2Name} onChange={e => setTeam2Name(sanitizeHtml(e.target.value))} style={{ flex: 1 }} />
+                                    <input type="color" className="color-picker" value={team2Color} onChange={e => setTeam2Color(e.target.value)} style={{ width: '60px' }} />
+                                </div>
                             </div>
                         </div>
 
                         <div className="esport-panel" style={{ borderTop: '4px solid #fff', marginTop: isMobile ? '0' : '10px' }}>
                             <h3 className="panel-title">🧠 مستوى الصعوبة</h3>
-                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                            <div className="grid-options" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                                 <button className={`pulse-btn btn-easy ${difficulty === 'easy' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('easy')}}>🟢 سهل</button>
                                 <button className={`pulse-btn btn-medium ${difficulty === 'medium' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('medium')}}>🟡 متوسط</button>
                                 <button className={`pulse-btn btn-hard ${difficulty === 'hard' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('hard')}}>🔴 صعب</button>
@@ -808,7 +1128,7 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, position: 'relative', zIndex: 10, paddingBottom: '40px' }}>
                         <div className="hex-container" style={{
                         display: 'flex', flexDirection: 'column', alignItems: 'center',
-                        '--hex-w': `clamp(30px, calc(min(70vw, 55vh) / ${gridSize}), 110px)`, 
+                        '--hex-w': `clamp(25px, calc(min(70vw, 45vh) / ${gridSize}), 100px)`, 
                         '--hex-h': 'calc(var(--hex-w) * 1.1547)', 
                         '--hex-gap': 'calc(var(--hex-w) * 0.08)', 
                         '--hex-border': '3px', 
@@ -887,9 +1207,9 @@ function App() {
                         }}>
                             
                             <div className="glass-panel anim-glitch" style={{ 
-                                width: isMobile ? '100%' : '1100px', 
+                                width: '95%', 
                                 maxWidth: '1100px', 
-                                padding: isMobile ? '20px 10px' : '60px', 
+                                padding: isMobile ? '20px 10px' : '50px', 
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', 
                                 border: '1px solid rgba(255,255,255,0.08)', 
                                 boxShadow: '0 40px 100px rgba(0,0,0,0.8)',
@@ -903,46 +1223,79 @@ function App() {
                                     </div>
                                 )}
 
-                                <div style={{ display: 'flex', gap: '16px', marginBottom: '40px', marginTop: silencedTeam ? '40px' : '0' }}>
-                                    <div style={{ background: '#fff', color: '#000', padding: '8px 35px', borderRadius: '12px', fontSize: '1.5rem', fontWeight: '900', boxShadow: '0 5px 20px rgba(255,255,255,0.3)', letterSpacing: '1px' }}>حرف ( {letters[activeCell]} )</div>
-                                    {goldenCells.includes(activeCell) && <div style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#fde047', border: '1px solid rgba(234, 179, 8, 0.4)', padding: '8px 25px', borderRadius: '12px', fontSize: '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>✨ خلية ذهبية مضاعفة</div>}
-                                    {virusCells.includes(activeCell) && <div style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)', padding: '8px 25px', borderRadius: '12px', fontSize: '1.1rem', fontWeight: '800', display:'flex', alignItems:'center' }}>🦠 فيروس الانتشار</div>}
+                                <div style={{ display: 'flex', gap: '20px', marginBottom: '40px', marginTop: silencedTeam ? '40px' : '0', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <div className="anim-glitch" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '15px 50px', borderRadius: '20px', fontSize: '2.5rem', fontWeight: '900', boxShadow: '0 0 30px rgba(255,255,255,0.2), inset 0 0 20px rgba(255,255,255,0.1)', letterSpacing: '2px', backdropFilter: 'blur(10px)', textShadow: '0 0 15px rgba(255,255,255,0.8)' }}>
+                                        حـرف ( {letters[activeCell]} )
+                                    </div>
+                                    {goldenCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.1))', color: '#fef08a', border: '1px solid rgba(234, 179, 8, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(234,179,8,0.3)', backdropFilter: 'blur(5px)' }}>✨ ذهبيــة مـضاعفة ✨</div>}
+                                    {virusCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(147, 51, 234, 0.1))', color: '#e9d5ff', border: '1px solid rgba(168, 85, 247, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(168,85,247,0.3)', backdropFilter: 'blur(5px)' }}>🦠 فـيروس الانتـشـار 🦠</div>}
                                 </div>
                                 
-                                <div style={{ 
-                                    fontSize: isMobile ? '1.3rem' : '3rem', 
-                                    color: '#fff', 
-                                    margin: isMobile ? '20px 0' : '0 0 50px 0', 
-                                    lineHeight: '1.5', 
-                                    fontWeight: '900', 
-                                    textAlign: 'center', 
-                                    textShadow: '0 10px 40px rgba(255,255,255,0.15)',
-                                    width: '90%'
-                                }}>
-                                    {currentQuestion}
-                                </div>
+                                {/* عرض السؤال فقط في نمط (المقدم الذكي) */}
+                                {hostMode === 'smart' && (
+                                    <div style={{ 
+                                        fontSize: isMobile ? '1.3rem' : '3rem', 
+                                        color: '#fff', 
+                                        margin: isMobile ? '20px 0' : '0 0 50px 0', 
+                                        lineHeight: '1.5', 
+                                        fontWeight: '900', 
+                                        textAlign: 'center', 
+                                        textShadow: '0 10px 40px rgba(255,255,255,0.15)',
+                                        width: '90%'
+                                    }}>
+                                        {currentQuestion}
+                                    </div>
+                                )}
                                 
+                                {/* إدارة صندوق الإجابات (مخفي للجمهور إلا لو أراد المقدم كشفها) */}
                                 {currentAnswer && (
-                                <div style={{ marginBottom: '50px', minHeight: '100px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                    {!isAnswerRevealed ? (
+                                <div style={{ marginBottom: hostMode === 'human' ? '10px' : '50px', minHeight: hostMode === 'human' ? '0' : '100px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                    
+                                    {hostMode === 'smart' && !isAnswerRevealed && (
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
                                             <button className="control-btn" onClick={() => {AudioEngine.play('click'); setIsAnswerRevealed(true)}} style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '20px 60px', borderRadius: '16px', fontSize: '1.5rem' }}>
                                                 كشف الإجابة (Space)
                                             </button>
-                                            {isPartialRevealed && (
-                                                <div className="anim-pop-in" style={{ fontSize: '2rem', color: '#facc15', fontWeight: '900', letterSpacing: '3px', textShadow: '0 0 15px rgba(250,204,21,0.5)' }}>
-                                                    تلميح: {currentAnswer.substring(0, 2)}...
-                                                </div>
-                                            )}
                                         </div>
-                                    ) : (
-                                        <div className="anim-slide-up" style={{ background: '#fff', color: '#000', padding: '20px 70px', borderRadius: '16px', fontSize: '3rem', fontWeight: '900', boxShadow: '0 20px 50px rgba(255,255,255,0.3)', letterSpacing: '1px' }}>
+                                    )}
+
+                                    {isAnswerRevealed && (
+                                        <div className="anim-slide-up" style={{ background: '#fff', color: '#000', padding: '20px 70px', borderRadius: '16px', fontSize: hostMode === 'human' ? '5rem' : '3rem', fontWeight: '900', boxShadow: '0 20px 50px rgba(255,255,255,0.3)', letterSpacing: '1px', textAlign: 'center' }}>
                                             {currentAnswer}
                                         </div>
                                     )}
+
                                 </div>
                                 )}
+
+                                {/* الذكاء الاصطناعي (AI Overlay Mode) */}
+                                {(aiAssistState.isProcessing || aiAssistState.active) && (
+                                    <div className="anim-cinematic" style={{ width: '100%', maxWidth: '800px', margin: '0 auto 40px auto', background: 'rgba(5, 5, 10, 0.85)', border: '1px solid #3b82f6', borderRadius: '24px', padding: '30px', boxShadow: '0 0 40px rgba(59, 130, 246, 0.3), inset 0 0 20px rgba(59, 130, 246, 0.1)', backdropFilter: 'blur(15px)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid rgba(59, 130, 246, 0.3)', paddingBottom: '15px', marginBottom: '20px' }}>
+                                            <div style={{ width: '15px', height: '15px', background: '#3b82f6', borderRadius: '50%', animation: 'alertPulse 1.5s infinite' }}></div>
+                                            <div style={{ color: '#60a5fa', fontSize: '1.2rem', fontWeight: '900', letterSpacing: '2px', fontFamily: 'monospace' }}>HUROOF_ZONE_AI.exe</div>
+                                        </div>
+                                        
+                                        {aiAssistState.isProcessing && (
+                                            <div style={{ color: '#34d399', fontSize: '1.4rem', fontFamily: 'monospace', textShadow: '0 0 10px rgba(52, 211, 153, 0.5)', minHeight: '40px', lineHeight: '1.6' }}>
+                                                {aiAssistState.log}
+                                                <span style={{ animation: 'alertPulse 1s infinite' }}>_</span>
+                                            </div>
+                                        )}
+
+                                        {aiAssistState.active && (
+                                            <div className="anim-slide-up" style={{ textAlign: 'center', padding: '20px 0' }}>
+                                                <div style={{ color: '#94a3b8', fontSize: '1.2rem', marginBottom: '10px' }}>نتائج التحليل العميق:</div>
+                                                <div style={{ color: '#facc15', fontSize: '3rem', fontWeight: '900', letterSpacing: '8px', textShadow: '0 0 20px rgba(250, 204, 21, 0.6)' }}>
+                                                    {aiAssistState.hint}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 
+                                {hostMode === 'smart' ? (
+                                <>
                                 <div className="command-center" style={{
                                     display: 'flex',
                                     flexDirection: isMobile ? 'column' : 'row', 
@@ -959,36 +1312,40 @@ function App() {
                                     <div style={{ textAlign: isMobile ? 'center' : 'right', width: isMobile ? '100%' : 'auto' }}>
                                         <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team1Name || 'الفريق الأول'}</div>
                                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.reveal} onClick={() => useLifeline(1, 'reveal')}>كشف جزئي</button>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')}>تسكيت 15 ثانية</button>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
+                                            <button className="pulse-btn" disabled={!team1Lifelines.ai_assist} onClick={() => useLifeline(1, 'ai_assist')} style={{background: team1Lifelines.ai_assist ? 'rgba(59, 130, 246, 0.2)' : '', borderColor: team1Lifelines.ai_assist ? '#3b82f6' : 'rgba(255,255,255,0.1)', color: team1Lifelines.ai_assist ? '#93c5fd' : ''}}>ذكاء حـروف 🧠</button>
+                                            <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')}>تسكيت الخصم</button>
+                                            <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')}>استبدال</button>
                                         </div>
                                     </div>
 
                                     {/* منطقة التايمر (العداد) */}
-                                    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '220px' }}>
-                                        <div style={{ 
+                                    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '220px', position: 'relative' }}>
+                                        <div 
+                                            onClick={() => { AudioEngine.play('click'); setIsTimerRunning(!isTimerRunning); }}
+                                            style={{ 
                                             fontSize: isMobile ? '3.5rem' : '6rem', 
                                             fontWeight: '900', 
                                             color: (timeLeft <= 10 ? '#ef4444' : '#fff'), 
                                             fontFamily: 'monospace', 
                                             lineHeight: '1', 
+                                            cursor: 'pointer',
                                             animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none' 
                                         }}>
                                             {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`}
                                         </div>
+                                        <div style={{ color: '#a1a1aa', fontSize: '0.9rem', marginTop: '5px' }}>{isTimerRunning ? '(انقر للإيقاف المؤقت)' : '(انقر للتشغيل)'}</div>
                                         <div className="progress-bg" style={{ marginTop: '10px' }}>
                                             <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#fff' }}></div>
                                         </div>
                                     </div>
-
+                                    
                                     {/* أدوات الفريق الثاني */}
                                     <div style={{ textAlign: isMobile ? 'center' : 'left', width: isMobile ? '100%' : 'auto' }}>
                                         <div style={{ color: team2Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team2Name || 'الفريق الثاني'}</div>
                                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-end' }}>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.reveal} onClick={() => useLifeline(2, 'reveal')}>كشف جزئي</button>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')}>تسكيت 15 ثانية</button>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')} style={{borderColor: 'rgba(255,255,255,0.3)'}}>استبدال</button>
+                                            <button className="pulse-btn" disabled={!team2Lifelines.ai_assist} onClick={() => useLifeline(2, 'ai_assist')} style={{background: team2Lifelines.ai_assist ? 'rgba(59, 130, 246, 0.2)' : '', borderColor: team2Lifelines.ai_assist ? '#3b82f6' : 'rgba(255,255,255,0.1)', color: team2Lifelines.ai_assist ? '#93c5fd' : ''}}>ذكاء حـروف 🧠</button>
+                                            <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')}>تسكيت الخصم</button>
+                                            <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')}>استبدال</button>
                                         </div>
                                     </div>
                                 </div>
@@ -1010,6 +1367,19 @@ function App() {
                                         تخطي السؤال (السهم الأيمن)
                                     </button>
                                 </div>
+                                </>
+                                ) : (
+                                    <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                                        <div 
+                                            onClick={() => { AudioEngine.play('click'); setIsTimerRunning(!isTimerRunning); }}
+                                            style={{ fontSize: '7rem', fontWeight: '900', color: (timeLeft <= 10 ? '#ef4444' : '#fff'), fontFamily: 'monospace', lineHeight: '1', cursor: 'pointer', animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none', textShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
+                                            {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`}
+                                        </div>
+                                        <div className="progress-bg" style={{ marginTop: '15px', maxWidth: '400px', margin: '15px auto 0 auto' }}>
+                                            <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#10b981' }}></div>
+                                        </div>
+                                    </div>
+                                )}
 
                             </div>
                         </div>
