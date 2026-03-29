@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Peer } from 'peerjs';
+import mqtt from 'mqtt';
 import QRCode from 'react-qr-code';
 
 const sanitizeHtml = (str) => {
@@ -206,107 +206,83 @@ function App() {
   const [silencedTeam, setSilencedTeam] = useState(null);
   const [aiAssistState, setAiAssistState] = useState({ isProcessing: false, active: false, hint: '', log: '' });
 
-  const useViteRelay = Boolean(import.meta && import.meta.hot);
+  // === إعدادات اتصال الجوال (MQTT Broker عبر WebSockets) ===
+  const mqttClientRef = useRef(null);
 
-  // === إعدادات اتصال الجوال (Vite Local Relay + PeerJS Fallback) ===
   useEffect(() => {
     const remote = initialRemoteId;
-    if (remote) {
-      if (useViteRelay) {
-         setRemoteConnection(true); // اتصال ناجح محلياً (هذا يحدث للجوال فقط)
-         import.meta.hot.send('huroof:remote_action', { type: 'CONNECTED' }); // إخبار المقدم بأن جواله اتصل بنجاح
-         const handler = (data) => setRemoteData(data);
-         import.meta.hot.on('huroof:state_update', handler);
-         return () => { if(import.meta.hot.off) import.meta.hot.off('huroof:state_update', handler); };
-      }
-      
-      const peerConfig = {
-          config: {
-              iceServers: [
-                  { urls: 'stun:stun.l.google.com:19302' },
-                  { urls: 'stun:stun1.l.google.com:19302' },
-                  { urls: 'stun:stun2.l.google.com:19302' },
-                  { urls: 'stun:stun3.l.google.com:19302' }
-              ]
-          }
-      };
+    const clientId = 'huroof_' + Math.random().toString(16).substr(2, 8);
+    
+    // Connect to a free, ultra-fast public MQTT broker
+    const client = mqtt.connect('wss://broker.hivemq.com:8443/mqtt', { clientId });
+    mqttClientRef.current = client;
 
-      const peer = new Peer(peerConfig);
-      peer.on('open', () => {
-         const conn = peer.connect(remote, { reliable: true });
-         conn.on('open', () => { setRemoteConnection(conn); conn.send({ type: 'CONNECTED' }); });
-         conn.on('data', (data) => setRemoteData(data));
-         conn.on('close', () => setConnectionError('انقطع الاتصال فجأة بالشاشة الرئيسية.'));
-         conn.on('error', (err) => setConnectionError('خطأ: ' + err.message));
+    if (remote) {
+      // --- الجوال (Remote Client) ---
+      client.on('connect', () => {
+         setRemoteConnection(client);
+         client.subscribe(`huroof/room/${remote}/to_remote`);
+         // إخبار الشاشة باتصال الجوال
+         client.publish(`huroof/room/${remote}/to_host`, JSON.stringify({ type: 'CONNECTED' }));
       });
-      peer.on('error', (err) => {
-          if (err.type === 'peer-unavailable') setConnectionError('الشاشة الرئيسية غير متاحة! تأكد من أن الشاشة مفتوحة على صفحة اللعب.');
-          else if (err.type === 'network' || err.type === 'webrtc') setConnectionError(`مشكلة في الاتصال (قد تكون قيود الشبكة 🛑). الرجاء تجربة شبكة مختلفة أو بيانات الجوال.`);
-          else setConnectionError(`فشل الاتصال: [${err.type}] ${err.message}`);
+      
+      client.on('message', (topic, message) => {
+         try {
+             const data = JSON.parse(message.toString());
+             if (data.type === 'STATE_UPDATE') {
+                 setRemoteData(data);
+             }
+         } catch(e) {}
       });
-      return () => { peer.destroy(); };
+      
+      client.on('error', (err) => setConnectionError('خطأ في السيرفر: ' + err.message));
+      client.on('offline', () => setConnectionError('جاري الاتصال بالسيرفر العالمي... الرجاء الانتظار'));
     } else {
-      const id = 'huroof-' + Math.random().toString(36).substr(2, 6);
-      setPeerId(id);
+      // --- الشاشة الرئيسية (Host Screen) ---
+      const generatedId = 'huroof-' + Math.random().toString(36).substr(2, 6);
+      setPeerId(generatedId);
       
-      const peerConfig = {
-          config: {
-              iceServers: [
-                  { urls: 'stun:stun.l.google.com:19302' },
-                  { urls: 'stun:stun1.l.google.com:19302' },
-                  { urls: 'stun:stun2.l.google.com:19302' },
-                  { urls: 'stun:stun3.l.google.com:19302' }
-              ]
-          }
-      };
+      client.on('connect', () => {
+         setRemoteConnection(client);
+         client.subscribe(`huroof/room/${generatedId}/to_host`);
+      });
       
-      // لا نجبر اتصال المقدم هنا.. يجب أن ينتظر الجوال ليرسل CONNECTED
-      const peer = new Peer(id, peerConfig);
-      peer.on('connection', (conn) => setRemoteConnection(conn));
-      return () => { peer.destroy(); };
+      client.on('message', (topic, message) => {
+         try {
+             const data = JSON.parse(message.toString());
+             setRemoteActionTrigger(data);
+         } catch(e) {}
+      });
     }
+
+    return () => {
+       if (client) client.end();
+    };
   }, [initialRemoteId]);
 
   const handleRemoteAction = useCallback((data) => {
       setRemoteActionTrigger(data);
   }, []);
 
+  // إرسال تحديثات حالة الشاشة للجوال بشكل دوري عند أي تغيير للـ State
   useEffect(() => {
-      if (!isRemoteClient) {
-          if (useViteRelay) {
-              const handler = (data) => handleRemoteAction(data);
-              import.meta.hot.on('huroof:remote_action', handler);
-              return () => { if(import.meta.hot.off) import.meta.hot.off('huroof:remote_action', handler); };
-          } else if (remoteConnection && remoteConnection.on) {
-              remoteConnection.on('data', handleRemoteAction);
-              return () => {
-                  remoteConnection.removeAllListeners && remoteConnection.removeAllListeners('data');
-                  remoteConnection.on('data', handleRemoteAction);
-              }
-          }
-      }
-  }, [useViteRelay, remoteConnection, handleRemoteAction, isRemoteClient]);
-
-  useEffect(() => {
-      if (!isRemoteClient && remoteConnection) {
+      if (!isRemoteClient && remoteConnection && peerId) {
           const payload = {
+              type: 'STATE_UPDATE',
               activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed,
               team1Name: team1Name || 'الفريق الأول', team2Name: team2Name || 'الفريق الثاني',
               t1Color: team1Color, t2Color: team2Color, isTimerRunning,
               team1Lifelines, team2Lifelines, aiAssistState
           };
-          if (useViteRelay) {
-              import.meta.hot.send('huroof:state_update', payload);
-          } else if (remoteConnection && typeof remoteConnection.send === 'function') {
-              remoteConnection.send({ type: 'STATE_UPDATE', ...payload });
-          }
+          mqttClientRef.current?.publish(`huroof/room/${peerId}/to_remote`, JSON.stringify(payload));
       }
-  }, [useViteRelay, remoteConnection, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, isRemoteClient]);
+  }, [remoteConnection, peerId, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, team1Lifelines, team2Lifelines, aiAssistState, isRemoteClient]);
 
-  // دالة مخصصة لإرسال الأوامر تعمل على كلتا الشبكتين
+  // دالة مخصصة لإرسال الأوامر تعمل من الجوال للشاشة
   const sendRemoteEvent = (data) => {
-      if (useViteRelay) import.meta.hot.send('huroof:remote_action', data);
-      else if (remoteConnection && typeof remoteConnection.send === 'function') remoteConnection.send(data);
+      if (initialRemoteId) {
+          mqttClientRef.current?.publish(`huroof/room/${initialRemoteId}/to_host`, JSON.stringify(data));
+      }
   };
 
   const toggleMode = (mode) => { AudioEngine.play('click'); setModes(prev => ({...prev, [mode]: !prev[mode]})); };
