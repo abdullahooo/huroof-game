@@ -220,25 +220,48 @@ function App() {
          return () => { if(import.meta.hot.off) import.meta.hot.off('huroof:state_update', handler); };
       }
       
-      const peer = new Peer();
+      const peerConfig = {
+          config: {
+              iceServers: [
+                  { urls: 'stun:stun.l.google.com:19302' },
+                  { urls: 'stun:stun1.l.google.com:19302' },
+                  { urls: 'stun:stun2.l.google.com:19302' },
+                  { urls: 'stun:stun3.l.google.com:19302' }
+              ]
+          }
+      };
+
+      const peer = new Peer(peerConfig);
       peer.on('open', () => {
-         const conn = peer.connect(remote);
+         const conn = peer.connect(remote, { reliable: true });
          conn.on('open', () => { setRemoteConnection(conn); conn.send({ type: 'CONNECTED' }); });
          conn.on('data', (data) => setRemoteData(data));
          conn.on('close', () => setConnectionError('انقطع الاتصال فجأة بالشاشة الرئيسية.'));
          conn.on('error', (err) => setConnectionError('خطأ: ' + err.message));
       });
       peer.on('error', (err) => {
-          if (err.type === 'peer-unavailable') setConnectionError('الشاشة الرئيسية غير متاحة! قد تكون أغلقت اللعبة الأساسية.');
-          else if (err.type === 'network' || err.type === 'webrtc') setConnectionError(`تم حظر الاتصال أو فشل الخادم 🛑! الرجاء إيقاف "موانع التتبع".`);
+          if (err.type === 'peer-unavailable') setConnectionError('الشاشة الرئيسية غير متاحة! تأكد من أن الشاشة مفتوحة على صفحة اللعب.');
+          else if (err.type === 'network' || err.type === 'webrtc') setConnectionError(`مشكلة في الاتصال (قد تكون قيود الشبكة 🛑). الرجاء تجربة شبكة مختلفة أو بيانات الجوال.`);
           else setConnectionError(`فشل الاتصال: [${err.type}] ${err.message}`);
       });
       return () => { peer.destroy(); };
     } else {
       const id = 'huroof-' + Math.random().toString(36).substr(2, 6);
       setPeerId(id);
+      
+      const peerConfig = {
+          config: {
+              iceServers: [
+                  { urls: 'stun:stun.l.google.com:19302' },
+                  { urls: 'stun:stun1.l.google.com:19302' },
+                  { urls: 'stun:stun2.l.google.com:19302' },
+                  { urls: 'stun:stun3.l.google.com:19302' }
+              ]
+          }
+      };
+      
       // لا نجبر اتصال المقدم هنا.. يجب أن ينتظر الجوال ليرسل CONNECTED
-      const peer = new Peer(id);
+      const peer = new Peer(id, peerConfig);
       peer.on('connection', (conn) => setRemoteConnection(conn));
       return () => { peer.destroy(); };
     }
