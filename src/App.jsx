@@ -163,6 +163,8 @@ function App() {
   const [peerId, setPeerId] = useState('');
   const [remoteConnection, setRemoteConnection] = useState(null);
   const [connectionError, setConnectionError] = useState('');
+  
+
   const [isRemoteClient, setIsRemoteClient] = useState(!!initialRemoteId);
   const [remoteData, setRemoteData] = useState(null);
   const [remoteActionTrigger, setRemoteActionTrigger] = useState(null);
@@ -442,8 +444,11 @@ function App() {
         return;
       }
       setTimeLeft(timerDuration);
-      setIsTimerRunning(hostMode === 'smart');
       setIsAnswerRevealed(false);
+
+
+
+      setIsTimerRunning(hostMode === 'smart');
       setCurrentQuestion('جاري تشفير البيانات واستخراج السؤال...');
       setCurrentAnswer('');
       fetchQuestion(letters[index]);
@@ -547,6 +552,7 @@ function App() {
           } else if (data.type === 'SKIP') {
               AudioEngine.play('click');
               setActiveCell(null);
+
           } else if (data.type === 'REVEAL') {
               setIsAnswerRevealed(true);
           } else if (data.type === 'TOGGLE_TIMER') {
@@ -806,6 +812,7 @@ function App() {
     @keyframes alertPulse { 0%, 100% { color: #ef4444; transform: scale(1); text-shadow: 0 0 20px rgba(239,68,68,0.5); } 50% { color: #fff; transform: scale(1.1); text-shadow: 0 0 40px rgba(239,68,68,1); } }
     @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
     
+    
     .anim-cinematic { animation: cinematicFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .anim-glitch { animation: cyberGlitch 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
     .anim-pop-in { animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
@@ -814,6 +821,22 @@ function App() {
 
     .confetti { position: absolute; width: 12px; height: 12px; background-color: #f00; animation: fall 4s linear forwards; opacity: 0.9; border-radius: 2px; box-shadow: 0 0 10px currentColor; pointer-events: none;}
     @keyframes fall { 0% { transform: translateY(-10vh) rotate(0deg); } 100% { transform: translateY(110vh) rotate(720deg); } }
+
+    @keyframes logoGlow { 0%, 100% { text-shadow: 0 0 30px rgba(255,255,255,0.3), 0 0 60px rgba(255,255,255,0.1); } 50% { text-shadow: 0 0 60px rgba(255,255,255,0.7), 0 0 120px rgba(255,255,255,0.3); } }
+    @keyframes titleFloat { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
+    @keyframes borderScan { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+    @keyframes timerRingPulse { 0%, 100% { filter: drop-shadow(0 0 8px currentColor); } 50% { filter: drop-shadow(0 0 25px currentColor) drop-shadow(0 0 50px currentColor); } }
+    @keyframes remotePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.4); } 50% { box-shadow: 0 0 0 15px rgba(250, 204, 21, 0); } }
+    @keyframes hexOwned { 0% { transform: scale(1.35); filter: brightness(2); } 100% { transform: scale(1); filter: brightness(1); } }
+    @keyframes neonFlicker { 0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; } 20%, 24%, 55% { opacity: 0.4; } }
+    
+    .hex-cell:hover { transform: scale(1.18) translateY(-4px) !important; z-index: 100; filter: brightness(1.4) saturate(1.3); }
+    .hex-cell-owned { animation: hexOwned 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .timer-ring-critical { animation: timerRingPulse 0.7s ease-in-out infinite; color: #ef4444; }
+    .remote-header { animation: remotePulse 2s infinite; }
+    .logo-title { animation: logoGlow 3s ease-in-out infinite, titleFloat 4s ease-in-out infinite; display: inline-block; }
+    .scan-line { position: relative; overflow: hidden; }
+    .scan-line::after { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: borderScan 3s linear infinite; }
   `;
 
   if (isRemoteClient) {
@@ -830,7 +853,14 @@ function App() {
       if (!remoteConnection) return (
           <>
           <style>{globalStyles}</style>
-          <div style={{color:'white', textAlign:'center', marginTop:'50px', fontSize:'2rem', fontFamily: 'Cairo, sans-serif'}}>جاري الاتصال بالشاشة الرئيسية...</div>
+          <div style={{ background: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cairo, sans-serif', color: 'white' }}>
+              <div style={{ fontSize: '3.5rem', marginBottom: '20px', animation: 'titleFloat 2s ease-in-out infinite' }}>⚡</div>
+              <h2 className="logo-title" style={{ fontSize: '2rem', margin: '0 0 10px 0' }}>حروف ZONE</h2>
+              <p style={{ color: '#475569', margin: '0 0 40px 0', fontSize: '1rem', letterSpacing: '3px', textTransform: 'uppercase' }}>جاري الاتصال بالشاشة...</p>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                  {[0,1,2].map(i => <div key={i} style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#facc15', animation: `fall 1.2s ease-in-out ${i * 0.2}s infinite alternate`, opacity: 0.7 }}></div>)}
+              </div>
+          </div>
           </>
       );
       
@@ -841,9 +871,10 @@ function App() {
       return (
           <>
           <style>{globalStyles}</style>
-          <div style={{ padding: '20px', backgroundColor: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: '20px', color: 'white', fontFamily: 'Cairo, sans-serif' }}>
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '20px', padding: '15px', textAlign: 'center' }}>
-                  <h2 style={{ margin: 0, color: '#facc15' }}>أدوات المُقدم السرية 🎙️</h2>
+          <div style={{ padding: '20px', backgroundColor: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: '16px', color: 'white', fontFamily: 'Cairo, sans-serif' }}>
+              <div className="remote-header" style={{ background: 'linear-gradient(135deg, rgba(250,204,21,0.15), rgba(245,158,11,0.05))', borderRadius: '20px', padding: '16px 20px', textAlign: 'center', border: '1px solid rgba(250,204,21,0.3)' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#facc15', letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>HUROOF ZONE</div>
+                  <h2 style={{ margin: 0, color: '#fff', fontSize: '1.3rem', fontWeight: '900' }}>🎙️ لوحة تحكم المُقدم السرية</h2>
               </div>
 
               {!remoteData || remoteData.activeCell === null ? (
@@ -969,6 +1000,22 @@ function App() {
                     minHeight: '100vh', 
                     display: 'flex' 
                 }}>
+                    {/* 🌟 Floating Particle System 🌟 */}
+                    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+                        {Array.from({ length: 30 }).map((_, i) => (
+                            <div key={i} style={{
+                                position: 'absolute',
+                                width: `${1.5 + (i % 4) * 0.8}px`,
+                                height: `${1.5 + (i % 4) * 0.8}px`,
+                                background: i % 4 === 0 ? 'rgba(250,204,21,0.5)' : i % 4 === 1 ? 'rgba(255,255,255,0.2)' : i % 4 === 2 ? `${team1Color}44` : `${team2Color}44`,
+                                borderRadius: '50%',
+                                left: `${(i * 37 + 5) % 100}%`,
+                                top: `${(i * 53 + 10) % 100}%`,
+                                animation: `titleFloat ${5 + (i % 6)}s ease-in-out ${i * 0.25}s infinite alternate`,
+                                boxShadow: i % 4 === 0 ? '0 0 8px rgba(250,204,21,0.7)' : '0 0 4px rgba(255,255,255,0.2)'
+                            }} />
+                        ))}
+                    </div>
                     {/* 🌟 العبارة المائية في الخلفية (تختفي مع بدء اللعب) 🌟 */}
                     <div style={{
                         position: 'absolute',
@@ -990,11 +1037,15 @@ function App() {
 
                     <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', position: 'relative', zIndex: 10 }} className="anim-cinematic">
                         
-                        <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '20px' }}>
-                            <h1 style={{ fontSize: isMobile ? '2.2rem' : '4.8rem', fontWeight: '900', margin: '0 0 5px 0', color: '#fff' }}>
-                               حروف <span style={{color: 'transparent', WebkitTextStroke: '1px rgba(255,255,255,0.2)'}}>ZONE</span>
-                            </h1>
-                            <p style={{ fontSize: isMobile ? '0.9rem' : '1.3rem' }}>محطة الإعداد التكتيكي</p>
+                        <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '30px', position: 'relative' }}>
+                            <div style={{ display: 'inline-block', position: 'relative' }}>
+                                <h1 className="logo-title" style={{ fontSize: isMobile ? '2.5rem' : '5.5rem', fontWeight: '900', margin: '0', color: '#fff', letterSpacing: '-1px', lineHeight: 1 }}>
+                                   حروف <span style={{color: 'transparent', WebkitTextStroke: '2px rgba(255,255,255,0.4)', letterSpacing: '4px'}}>ZONE</span>
+                                </h1>
+                                <div style={{ position: 'absolute', top: '-8px', left: '-5px', background: 'linear-gradient(135deg, #facc15, #f59e0b)', color: '#000', fontSize: '0.6rem', fontWeight: '900', padding: '3px 8px', borderRadius: '6px', letterSpacing: '2px', transform: 'rotate(-12deg)', boxShadow: '0 4px 15px rgba(250,204,21,0.5)' }}>PRO</div>
+                            </div>
+                            <p style={{ fontSize: isMobile ? '0.85rem' : '1rem', color: '#475569', margin: '10px 0 0 0', fontWeight: '700', letterSpacing: '4px', textTransform: 'uppercase' }}>محطة الإعداد التكتيكي</p>
+                            <div style={{ width: '80px', height: '2px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)', margin: '15px auto 0', borderRadius: '2px' }}></div>
                         </div>
                         
                         <div className="esport-panel">
@@ -1105,11 +1156,18 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '20px', maxWidth: '1800px', margin: '0 auto 20px auto', width: '100%', zIndex: 10 }}>
                         
                         {/* Team 1 Scoreboard */}
-                        <div className="esport-panel" style={{ display: 'flex', alignItems: 'center', gap: '25px', padding: '20px 40px', minWidth: '320px', borderRight: `6px solid ${team1Color}` }}>
-                            <div style={{ fontSize: '4.5rem', fontWeight: '900', color: team1Color, lineHeight: '1', textShadow: `0 0 30px ${team1Color}88` }}>{team1Score}</div>
-                            <div>
-                                <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#fff', textTransform: 'uppercase', letterSpacing: '1px' }}>{team1Name || 'الفريق الأول'}</div>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', fontWeight: '700', marginTop: '4px' }}>الجولات المكتسبة: <span style={{color:'#fff'}}>{team1Wins}</span></div>
+                        <div className="esport-panel scan-line" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '18px 30px', minWidth: isMobile ? 'auto' : '300px', borderRight: `4px solid ${team1Color}`, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: '80px' }}>
+                                <div style={{ fontSize: isMobile ? '3rem' : '4.5rem', fontWeight: '900', color: team1Color, lineHeight: '1', textShadow: `0 0 40px ${team1Color}, 0 0 80px ${team1Color}44` }}>{team1Score}</div>
+                                <div style={{ fontSize: '0.65rem', color: team1Color, letterSpacing: '2px', opacity: 0.7, textTransform: 'uppercase', marginTop: '2px' }}>نقطة</div>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: isMobile ? '1.1rem' : '1.5rem', fontWeight: '900', color: '#fff', textTransform: 'uppercase', letterSpacing: '1px' }}>{team1Name || 'الفريق الأول'}</div>
+                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: '700', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {Array.from({ length: Math.max(maxRounds === 999 ? 1 : maxRounds, 1) }).map((_, i) => (
+                                        <div key={i} style={{ width: '10px', height: '10px', borderRadius: '50%', background: i < team1Wins ? team1Color : 'rgba(255,255,255,0.1)', boxShadow: i < team1Wins ? `0 0 8px ${team1Color}` : 'none', transition: 'all 0.3s' }} />
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
@@ -1124,11 +1182,18 @@ function App() {
                         </div>
 
                         {/* Team 2 Scoreboard */}
-                        <div className="esport-panel" style={{ display: 'flex', alignItems: 'center', gap: '25px', padding: '20px 40px', minWidth: '320px', flexDirection: 'row-reverse', borderLeft: `6px solid ${team2Color}` }}>
-                            <div style={{ fontSize: '4.5rem', fontWeight: '900', color: team2Color, lineHeight: '1', textShadow: `0 0 30px ${team2Color}88` }}>{team2Score}</div>
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#fff', textTransform: 'uppercase', letterSpacing: '1px' }}>{team2Name || 'الفريق الثاني'}</div>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', fontWeight: '700', marginTop: '4px' }}>الجولات المكتسبة: <span style={{color:'#fff'}}>{team2Wins}</span></div>
+                        <div className="esport-panel scan-line" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '18px 30px', minWidth: isMobile ? 'auto' : '300px', flexDirection: 'row-reverse', borderLeft: `4px solid ${team2Color}`, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: '80px' }}>
+                                <div style={{ fontSize: isMobile ? '3rem' : '4.5rem', fontWeight: '900', color: team2Color, lineHeight: '1', textShadow: `0 0 40px ${team2Color}, 0 0 80px ${team2Color}44` }}>{team2Score}</div>
+                                <div style={{ fontSize: '0.65rem', color: team2Color, letterSpacing: '2px', opacity: 0.7, textTransform: 'uppercase', marginTop: '2px' }}>نقطة</div>
+                            </div>
+                            <div style={{ flex: 1, textAlign: 'left' }}>
+                                <div style={{ fontSize: isMobile ? '1.1rem' : '1.5rem', fontWeight: '900', color: '#fff', textTransform: 'uppercase', letterSpacing: '1px' }}>{team2Name || 'الفريق الثاني'}</div>
+                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: '700', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
+                                    {Array.from({ length: Math.max(maxRounds === 999 ? 1 : maxRounds, 1) }).map((_, i) => (
+                                        <div key={i} style={{ width: '10px', height: '10px', borderRadius: '50%', background: i < team2Wins ? team2Color : 'rgba(255,255,255,0.1)', boxShadow: i < team2Wins ? `0 0 8px ${team2Color}` : 'none', transition: 'all 0.3s' }} />
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
@@ -1183,24 +1248,25 @@ function App() {
                         </div>
                     </div>
 
-                    {/* Live Stats Bar */}
-                    <div className="esport-panel live-stats" style={{ position: 'sticky', bottom: '20px', left: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '1400px', padding: '15px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 9000, borderRadius: '20px', marginBottom: '20px' }}>
-                        <div className="actions" style={{ display: 'flex', gap: '15px' }}>
-                            <button onClick={() => {AudioEngine.play('click'); setCells(Array(gridSize*gridSize).fill(0)); setTeam1Score(0); setTeam2Score(0);}} className="pulse-btn" style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.1)' }}>تصفير الساحة</button>
-                            <button onClick={resetFullGame} className="pulse-btn">العودة للإعدادات</button>
+                    {/* Live Stats Bar - Upgraded */}
+                    <div className="esport-panel live-stats" style={{ position: 'sticky', bottom: '20px', left: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '1400px', padding: isMobile ? '12px 16px' : '16px 35px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 9000, borderRadius: '20px', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(30px)' }}>
+                        <div className="actions" style={{ display: 'flex', gap: '12px' }}>
+                            <button onClick={() => {AudioEngine.play('click'); setCells(Array(gridSize*gridSize).fill(0)); setTeam1Score(0); setTeam2Score(0);}} className="pulse-btn" style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)', fontSize: isMobile ? '0.8rem' : '1rem' }}>تصفير</button>
+                            <button onClick={resetFullGame} className="pulse-btn" style={{ fontSize: isMobile ? '0.8rem' : '1rem' }}>العودة</button>
                         </div>
                         
-                        <div className="bars" style={{ display: 'flex', alignItems: 'center', gap: '30px', flex: 1, maxWidth: '600px', margin: '0 30px' }}>
-                            <div style={{ color: team1Color, fontWeight: '900', fontSize: '1.4rem' }}>{t1ControlPercent}%</div>
-                            <div style={{ flex: 1, height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', overflow: 'hidden', display: 'flex' }}>
-                                <div style={{ width: `${t1ControlPercent}%`, background: team1Color, transition: 'width 0.5s', boxShadow: `0 0 10px ${team1Color}` }}></div>
-                                <div style={{ width: `${t2ControlPercent}%`, background: team2Color, transition: 'width 0.5s', marginLeft: 'auto', boxShadow: `0 0 10px ${team2Color}` }}></div>
+                        <div className="bars" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, maxWidth: '500px', margin: '0 20px' }}>
+                            <div style={{ color: team1Color, fontWeight: '900', fontSize: '1.2rem', minWidth: '40px', textAlign: 'center', textShadow: `0 0 10px ${team1Color}` }}>{t1ControlPercent}%</div>
+                            <div style={{ flex: 1, height: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', overflow: 'hidden', display: 'flex', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>
+                                <div style={{ width: `${t1ControlPercent}%`, background: `linear-gradient(90deg, ${team1Color}cc, ${team1Color})`, transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)', boxShadow: `0 0 12px ${team1Color}, inset 0 1px 0 rgba(255,255,255,0.3)` }}></div>
+                                <div style={{ width: `${t2ControlPercent}%`, background: `linear-gradient(90deg, ${team2Color}, ${team2Color}cc)`, transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)', marginLeft: 'auto', boxShadow: `0 0 12px ${team2Color}, inset 0 1px 0 rgba(255,255,255,0.3)` }}></div>
                             </div>
-                            <div style={{ color: team2Color, fontWeight: '900', fontSize: '1.4rem' }}>{t2ControlPercent}%</div>
+                            <div style={{ color: team2Color, fontWeight: '900', fontSize: '1.2rem', minWidth: '40px', textAlign: 'center', textShadow: `0 0 10px ${team2Color}` }}>{t2ControlPercent}%</div>
                         </div>
                         
-                        <div className="remaining" style={{ color: 'var(--text-secondary)', fontWeight: '800', fontSize: '1.2rem', background: 'rgba(0,0,0,0.3)', padding: '10px 20px', borderRadius: '12px' }}>
-                            الخلايا المتبقية: <span style={{color: '#fff', fontSize: '1.4rem'}}>{emptyCellsCount}</span>
+                        <div className="remaining" style={{ color: 'var(--text-secondary)', fontWeight: '800', fontSize: '1rem', background: 'rgba(0,0,0,0.4)', padding: '8px 16px', borderRadius: '10px', textAlign: 'center', minWidth: '70px' }}>
+                            <div style={{ color: '#fff', fontSize: '1.5rem', fontWeight: '900', lineHeight: 1 }}>{emptyCellsCount}</div>
+                            <div style={{ fontSize: '0.65rem', letterSpacing: '1px', textTransform: 'uppercase' }}>خلية متبقية</div>
                         </div>
                     </div>
 
@@ -1234,8 +1300,9 @@ function App() {
                                 )}
 
                                 <div style={{ display: 'flex', gap: '20px', marginBottom: '40px', marginTop: silencedTeam ? '40px' : '0', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
-                                    <div className="anim-glitch" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '15px 50px', borderRadius: '20px', fontSize: '2.5rem', fontWeight: '900', boxShadow: '0 0 30px rgba(255,255,255,0.2), inset 0 0 20px rgba(255,255,255,0.1)', letterSpacing: '2px', backdropFilter: 'blur(10px)', textShadow: '0 0 15px rgba(255,255,255,0.8)' }}>
-                                        حـرف ( {letters[activeCell]} )
+                                    <div className="anim-glitch" style={{ position: 'relative', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', padding: isMobile ? '12px 30px' : '18px 60px', borderRadius: '20px', fontSize: isMobile ? '1.8rem' : '3rem', fontWeight: '900', boxShadow: '0 0 40px rgba(255,255,255,0.15), inset 0 0 30px rgba(255,255,255,0.05)', letterSpacing: '4px', backdropFilter: 'blur(10px)', textShadow: '0 0 20px rgba(255,255,255,0.9)' }}>
+                                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.5em', position: 'absolute', top: '8px', right: '50%', transform: 'translateX(50%)', letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '700' }}>حـرف</span>
+                                        {letters[activeCell]}
                                     </div>
                                     {goldenCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.1))', color: '#fef08a', border: '1px solid rgba(234, 179, 8, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(234,179,8,0.3)', backdropFilter: 'blur(5px)' }}>✨ ذهبيــة مـضاعفة ✨</div>}
                                     {virusCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(147, 51, 234, 0.1))', color: '#e9d5ff', border: '1px solid rgba(168, 85, 247, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(168,85,247,0.3)', backdropFilter: 'blur(5px)' }}>🦠 فـيروس الانتـشـار 🦠</div>}
@@ -1328,25 +1395,38 @@ function App() {
                                         </div>
                                     </div>
 
-                                    {/* منطقة التايمر (العداد) */}
-                                    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '220px', position: 'relative' }}>
-                                        <div 
-                                            onClick={() => { AudioEngine.play('click'); setIsTimerRunning(!isTimerRunning); }}
-                                            style={{ 
-                                            fontSize: isMobile ? '3.5rem' : '6rem', 
-                                            fontWeight: '900', 
-                                            color: (timeLeft <= 10 ? '#ef4444' : '#fff'), 
-                                            fontFamily: 'monospace', 
-                                            lineHeight: '1', 
-                                            cursor: 'pointer',
-                                            animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none' 
-                                        }}>
-                                            {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`}
-                                        </div>
-                                        <div style={{ color: '#a1a1aa', fontSize: '0.9rem', marginTop: '5px' }}>{isTimerRunning ? '(انقر للإيقاف المؤقت)' : '(انقر للتشغيل)'}</div>
-                                        <div className="progress-bg" style={{ marginTop: '10px' }}>
-                                            <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#fff' }}></div>
-                                        </div>
+                                    {/* منطقة التايمر الدائري (SVG Ring) */}
+                                    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '200px', position: 'relative', cursor: 'pointer' }}
+                                         onClick={() => { AudioEngine.play('click'); setIsTimerRunning(!isTimerRunning); }}>
+                                        {(() => {
+                                            const r = 70;
+                                            const circ = 2 * Math.PI * r;
+                                            const pct = timeLeft / timerDuration;
+                                            const dashOffset = circ * (1 - pct);
+                                            const isCritical = timeLeft <= 10;
+                                            const ringColor = isCritical ? '#ef4444' : '#ffffff';
+                                            return (
+                                                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} className={isCritical ? 'timer-ring-critical' : ''}>
+                                                    <svg width={isMobile ? 130 : 170} height={isMobile ? 130 : 170} style={{ transform: 'rotate(-90deg)' }}>
+                                                        <circle cx={isMobile ? 65 : 85} cy={isMobile ? 65 : 85} r={isMobile ? 55 : r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
+                                                        <circle cx={isMobile ? 65 : 85} cy={isMobile ? 65 : 85} r={isMobile ? 55 : r} fill="none" stroke={ringColor} strokeWidth="8"
+                                                            strokeDasharray={isMobile ? (2 * Math.PI * 55).toFixed(1) : circ.toFixed(1)}
+                                                            strokeDashoffset={(isMobile ? (2 * Math.PI * 55) : circ) * (1 - pct)}
+                                                            strokeLinecap="round"
+                                                            style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease', filter: `drop-shadow(0 0 ${isCritical ? '12px' : '6px'} ${ringColor})` }}
+                                                        />
+                                                    </svg>
+                                                    <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                                        <span style={{ fontSize: isMobile ? '2rem' : '2.8rem', fontWeight: '900', fontFamily: 'monospace', color: ringColor, lineHeight: 1 }}>
+                                                            {`${timeLeft < 10 ? '0' : ''}${timeLeft}`}
+                                                        </span>
+                                                        <span style={{ fontSize: '0.65rem', color: '#475569', letterSpacing: '1px', marginTop: '2px', textTransform: 'uppercase' }}>
+                                                            {isTimerRunning ? 'اضغط للإيقاف' : 'اضغط للتشغيل'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                     
                                     {/* أدوات الفريق الثاني */}
@@ -1374,7 +1454,7 @@ function App() {
                                         إجابة خاطئة (X)
                                     </button>
                                     <button className="control-btn" onClick={() => {AudioEngine.play('click'); setActiveCell(null)}} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '2px solid rgba(255, 255, 255, 0.15)', flex: 1 }}>
-                                        تخطي السؤال (السهم الأيمن)
+                                        تخطي (▶)
                                     </button>
                                 </div>
                                 </>
