@@ -215,13 +215,26 @@ function App() {
     const remote = initialRemoteId;
     const clientId = 'huroof_' + Math.random().toString(16).substr(2, 8);
     
-    // Connect to a free, ultra-fast public MQTT broker (EMQX)
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId });
+    // Try multiple reliable public brokers
+    const brokers = [
+      'wss://broker.hivemq.com:8884/mqtt',
+      'wss://test.mosquitto.org:8081',
+      'wss://broker.emqx.io:8084/mqtt'
+    ];
+    
+    const client = mqtt.connect(brokers[0], {
+      clientId,
+      keepalive: 30,
+      reconnectPeriod: 3000,
+      connectTimeout: 20000,
+      clean: true
+    });
     mqttClientRef.current = client;
 
     if (remote) {
       // --- الجوال (Remote Client) ---
       client.on('connect', () => {
+         setConnectionError(''); // clear any previous error
          setRemoteConnection(client);
          client.subscribe(`huroof/room/${remote}/to_remote`);
          // إخبار الشاشة باتصال الجوال
@@ -237,8 +250,18 @@ function App() {
          } catch(e) {}
       });
       
-      client.on('error', (err) => setConnectionError('خطأ في السيرفر: ' + err.message));
-      client.on('offline', () => setConnectionError('جاري الاتصال بالسيرفر العالمي... الرجاء الانتظار'));
+      // Show reconnecting state but DON'T permanently block — mqtt will auto-retry
+      client.on('error', (err) => {
+        console.warn('MQTT error:', err.message);
+        setConnectionError('جاري إعادة الاتصال...');
+      });
+      client.on('offline', () => {
+        setConnectionError('جاري الاتصال بالسيرفر...');
+        setRemoteConnection(null);
+      });
+      client.on('reconnect', () => {
+        setConnectionError('غير متصل — جاري إعادة المحاولة...');
+      });
     } else {
       // --- الشاشة الرئيسية (Host Screen) ---
       const generatedId = 'huroof-' + Math.random().toString(36).substr(2, 6);
@@ -255,10 +278,16 @@ function App() {
              setRemoteActionTrigger(data);
          } catch(e) {}
       });
+
+      client.on('offline', () => setRemoteConnection(null));
+      client.on('connect', () => {
+        // Re-subscribe after reconnect
+        client.subscribe(`huroof/room/${generatedId}/to_host`);
+      });
     }
 
     return () => {
-       if (client) client.end();
+       if (client) client.end(true);
     };
   }, [initialRemoteId]);
 
@@ -271,6 +300,7 @@ function App() {
       if (!isRemoteClient && remoteConnection && peerId) {
           const payload = {
               type: 'STATE_UPDATE',
+              hostMode,
               activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed,
               team1Name: team1Name || 'الفريق الأول', team2Name: team2Name || 'الفريق الثاني',
               t1Color: team1Color, t2Color: team2Color, isTimerRunning,
@@ -278,7 +308,7 @@ function App() {
           };
           mqttClientRef.current?.publish(`huroof/room/${peerId}/to_remote`, JSON.stringify(payload));
       }
-  }, [remoteConnection, peerId, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, team1Lifelines, team2Lifelines, aiAssistState, isRemoteClient]);
+  }, [remoteConnection, peerId, hostMode, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, team1Lifelines, team2Lifelines, aiAssistState, isRemoteClient]);
 
   // دالة مخصصة لإرسال الأوامر تعمل من الجوال للشاشة
   const sendRemoteEvent = (data) => {
@@ -552,7 +582,12 @@ function App() {
           } else if (data.type === 'SKIP') {
               AudioEngine.play('click');
               setActiveCell(null);
-
+          } else if (data.type === 'SET_QUESTION') {
+              // Human host is broadcasting a custom question from their phone
+              setCurrentQuestion(sanitizeHtml(data.question || ''));
+              setCurrentAnswer(sanitizeHtml(data.answer || ''));
+              setIsAnswerRevealed(false);
+              setIsTimerRunning(false);
           } else if (data.type === 'REVEAL') {
               setIsAnswerRevealed(true);
           } else if (data.type === 'TOGGLE_TIMER') {
@@ -837,113 +872,244 @@ function App() {
     .logo-title { animation: logoGlow 3s ease-in-out infinite, titleFloat 4s ease-in-out infinite; display: inline-block; }
     .scan-line { position: relative; overflow: hidden; }
     .scan-line::after { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: borderScan 3s linear infinite; }
+
+    @keyframes marqueeRtl { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+    .letter-ticker-wrap { width: 100%; overflow: hidden; position: relative; padding: 10px 0; }
+    .letter-ticker-wrap::before, .letter-ticker-wrap::after { content: ''; position: absolute; top: 0; bottom: 0; width: 80px; z-index: 2; pointer-events: none; }
+    .letter-ticker-wrap::before { left: 0; background: linear-gradient(to right, var(--bg-deep), transparent); }
+    .letter-ticker-wrap::after { right: 0; background: linear-gradient(to left, var(--bg-deep), transparent); }
+    .letter-ticker-inner { display: flex; gap: 0; white-space: nowrap; animation: marqueeRtl 22s linear infinite; width: max-content; }
+    .letter-ticker-inner span { font-size: 1.1rem; font-weight: 900; padding: 0 18px; color: rgba(255,255,255,0.08); letter-spacing: 2px; transition: color 0.3s; font-family: 'Cairo', sans-serif; }
+    .letter-ticker-inner span:hover { color: rgba(255,255,255,0.35); }
   `;
 
-  if (isRemoteClient) {
-      if (connectionError) return (
-          <>
-          <style>{globalStyles}</style>
-          <div style={{color:'white', textAlign:'center', marginTop:'50px', padding: '20px', fontFamily: 'Cairo, sans-serif'}}>
-              <h2 style={{color: '#ef4444'}}>❌ فشل الاتصال</h2>
-              <p style={{fontSize: '1.5rem', marginTop: '20px', lineHeight: '1.6'}}>{connectionError}</p>
-          </div>
-          </>
-      );
+  // ====== Remote Client State for Human Host Mode ======
+  const [spyQuestion, setSpyQuestion] = useState('');
+  const [spyAnswer, setSpyAnswer] = useState('');
+  const [spyTab, setSpyTab] = useState('control'); // 'control' | 'compose'
 
+  if (isRemoteClient) {
+      // Show a nice reconnecting screen instead of blocking error
       if (!remoteConnection) return (
           <>
           <style>{globalStyles}</style>
-          <div style={{ background: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cairo, sans-serif', color: 'white' }}>
-              <div style={{ fontSize: '3.5rem', marginBottom: '20px', animation: 'titleFloat 2s ease-in-out infinite' }}>⚡</div>
+          <div style={{ background: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cairo, sans-serif', color: 'white', padding: '20px', textAlign: 'center' }}>
+              <div style={{ fontSize: '3.5rem', marginBottom: '20px', animation: 'titleFloat 2s ease-in-out infinite' }}>
+                  {connectionError ? '🔄' : '⚡'}
+              </div>
               <h2 className="logo-title" style={{ fontSize: '2rem', margin: '0 0 10px 0' }}>حروف ZONE</h2>
-              <p style={{ color: '#475569', margin: '0 0 40px 0', fontSize: '1rem', letterSpacing: '3px', textTransform: 'uppercase' }}>جاري الاتصال بالشاشة...</p>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                  {[0,1,2].map(i => <div key={i} style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#facc15', animation: `fall 1.2s ease-in-out ${i * 0.2}s infinite alternate`, opacity: 0.7 }}></div>)}
+              <p style={{ color: connectionError ? '#f59e0b' : '#475569', margin: '0 0 10px 0', fontSize: '1rem', maxWidth: '300px', lineHeight: 1.6 }}>
+                  {connectionError || 'جاري الاتصال بالشاشة...'}
+              </p>
+              {connectionError && (
+                  <p style={{ color: '#475569', fontSize: '0.85rem', margin: '0 0 30px 0' }}>
+                      يتم إعادة المحاولة تلقائياً...
+                  </p>
+              )}
+              <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
+                  {[0,1,2].map(i => <div key={i} style={{ width: '12px', height: '12px', borderRadius: '50%', background: connectionError ? '#f59e0b' : '#facc15', animation: `fall 1.2s ease-in-out ${i * 0.2}s infinite alternate`, opacity: 0.7 }}></div>)}
               </div>
           </div>
           </>
       );
-      
-      const renderButton = (text, color, onClick) => (
-          <button onClick={() => { AudioEngine.play('click'); onClick(); }} style={{ flex: 1, padding: '20px', background: color, color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.2rem', fontWeight: 'bold' }}>{text}</button>
+
+      const isHumanMode = remoteData?.hostMode === 'human';
+      const cellActive = remoteData && remoteData.activeCell !== null;
+
+      // Shared spy-master send helpers
+      const sendQ = () => {
+          if (!spyQuestion.trim()) return;
+          sendRemoteEvent({ type: 'SET_QUESTION', question: spyQuestion, answer: spyAnswer });
+      };
+
+      const TabBtn = ({ id, label }) => (
+          <button id={id} onClick={() => { AudioEngine.play('click'); setSpyTab(id); }}
+              style={{
+                  flex: 1, padding: '14px', border: 'none', borderRadius: '12px', fontFamily: 'inherit',
+                  fontWeight: '900', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.25s',
+                  background: spyTab === id ? '#facc15' : 'rgba(255,255,255,0.06)',
+                  color: spyTab === id ? '#000' : '#94a3b8',
+                  boxShadow: spyTab === id ? '0 6px 20px rgba(250,204,21,0.35)' : 'none'
+              }}>{label}</button>
       );
 
+      // ── Spy Master Panel render ──
       return (
           <>
           <style>{globalStyles}</style>
-          <div style={{ padding: '20px', backgroundColor: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: '16px', color: 'white', fontFamily: 'Cairo, sans-serif' }}>
-              <div className="remote-header" style={{ background: 'linear-gradient(135deg, rgba(250,204,21,0.15), rgba(245,158,11,0.05))', borderRadius: '20px', padding: '16px 20px', textAlign: 'center', border: '1px solid rgba(250,204,21,0.3)' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#facc15', letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>HUROOF ZONE</div>
-                  <h2 style={{ margin: 0, color: '#fff', fontSize: '1.3rem', fontWeight: '900' }}>🎙️ لوحة تحكم المُقدم السرية</h2>
+          <style>{`
+              .spy-panel { background: rgba(15,15,22,0.98); min-height: 100vh; padding: 0 0 40px 0; display: flex; flex-direction: column; color: white; font-family: 'Cairo', sans-serif; }
+              .spy-header { background: linear-gradient(135deg, rgba(250,204,21,0.18), rgba(245,158,11,0.06)); border-bottom: 1px solid rgba(250,204,21,0.25); padding: 18px 20px; text-align: center; }
+              .spy-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 18px; }
+              .spy-card-title { font-size: 0.75rem; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; font-weight: 700; }
+              .spy-big-timer { text-align: center; font-size: 5.5rem; font-weight: 900; font-family: monospace; line-height: 1; transition: color 0.4s; }
+              .spy-action-btn { width: 100%; padding: 18px; border: none; border-radius: 14px; font-family: inherit; font-weight: 900; font-size: 1.1rem; cursor: pointer; transition: all 0.2s; }
+              .spy-action-btn:active { transform: scale(0.97); }
+              .spy-outline-btn { background: transparent; border-radius: 14px; font-family: inherit; font-weight: 900; cursor: pointer; padding: 15px; transition: all 0.2s; }
+              .spy-outline-btn:active { transform: scale(0.97); }
+              .spy-input { width: 100%; padding: 16px 18px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; color: #fff; font-family: inherit; font-size: 1rem; font-weight: 700; outline: none; box-sizing: border-box; transition: border-color 0.2s; resize: vertical; }
+              .spy-input:focus { border-color: #facc15; }
+              .spy-lifeline-btn { padding: 12px 8px; border-radius: 12px; font-family: inherit; font-weight: 900; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; border: none; width: 100%; }
+              .spy-lifeline-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+              .spy-lifeline-btn:not(:disabled):active { transform: scale(0.96); }
+          `}</style>
+          <div className="spy-panel">
+
+              {/* Header */}
+              <div className="spy-header">
+                  <div style={{ fontSize: '0.7rem', color: '#facc15', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '4px', fontWeight: '700' }}>HUROOF ZONE — SPY MASTER</div>
+                  <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', fontWeight: '900' }}>🎙️ لوحة تحكم المُقدم السرية</h2>
+                  {remoteData && (
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '8px' }}>
+                          <span style={{ background: remoteData.t1Color + '33', color: remoteData.t1Color, border: `1px solid ${remoteData.t1Color}55`, padding: '3px 12px', borderRadius: '30px', fontSize: '0.8rem', fontWeight: '800' }}>{remoteData.team1Name || 'الفريق 1'}</span>
+                          <span style={{ color: '#475569', fontSize: '0.8rem', alignSelf: 'center' }}>vs</span>
+                          <span style={{ background: remoteData.t2Color + '33', color: remoteData.t2Color, border: `1px solid ${remoteData.t2Color}55`, padding: '3px 12px', borderRadius: '30px', fontSize: '0.8rem', fontWeight: '800' }}>{remoteData.team2Name || 'الفريق 2'}</span>
+                      </div>
+                  )}
               </div>
 
-              {!remoteData || remoteData.activeCell === null ? (
-                  <div style={{ textAlign: 'center', marginTop: '50px', fontSize: '1.5rem', color: '#a1a1aa' }}>
-                      الرجاء اختيار خلية من الشاشة الرئيسية لبدء التحكم...
-                  </div>
-              ) : (
+              {/* Tab Bar */}
+              <div style={{ display: 'flex', gap: '10px', padding: '16px 16px 0 16px' }}>
+                  <TabBtn id="control" label="🕹️ تحكم" />
+                  {isHumanMode && <TabBtn id="compose" label="✏️ سؤال جديد" />}
+                  <TabBtn id="lifelines" label="⚡ مساعدة" />
+              </div>
+
+              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+
+              {/* ===== TAB: CONTROL ===== */}
+              {spyTab === 'control' && (
                   <>
-                      {/* Timer Display & Controls */}
-                      <div style={{ textAlign: 'center', fontSize: '5rem', fontWeight: '900', color: remoteData.timeLeft <= 10 ? '#ef4444' : '#fff' }}>
-                          00:{remoteData.timeLeft < 10 ? `0${remoteData.timeLeft}` : remoteData.timeLeft}
+                  {/* Timer */}
+                  <div className="spy-card">
+                      <div className="spy-card-title">⏱️ المؤقت</div>
+                      <div className="spy-big-timer" style={{ color: remoteData?.timeLeft <= 10 ? '#ef4444' : '#ffffff' }}>
+                          {remoteData ? `00:${remoteData.timeLeft < 10 ? '0' : ''}${remoteData.timeLeft}` : '--:--'}
                       </div>
-
-                      <div style={{ display: 'flex', gap: '15px' }}>
-                         {renderButton(remoteData.isTimerRunning ? '⏸️ إيقاف المؤقت' : '▶️ تشغيل المؤقت', remoteData.isTimerRunning ? '#f59e0b' : '#10b981', () => sendRemoteEvent({ type: 'TOGGLE_TIMER' }))}
-                      </div>
-
-                      {/* Question Box */}
-                      <div style={{ background: 'rgba(255,255,255,0.1)', padding: '20px', borderRadius: '15px', fontSize: '1.5rem', textAlign: 'center' }}>
-                          <span style={{color: '#94a3b8', fontSize: '1rem', display: 'block', marginBottom: '10px'}}>السؤال:</span>
-                          {remoteData.currentQuestion}
-                      </div>
-
-                      {/* Answer Box */}
-                      <div style={{ background: '#3b82f6', padding: '20px', borderRadius: '15px', fontSize: '2rem', textAlign: 'center', fontWeight: 'bold' }}>
-                          <span style={{color: 'rgba(255,255,255,0.7)', fontSize: '1rem', display: 'block', marginBottom: '10px'}}>الإجابة:</span>
-                          {remoteData.currentAnswer || '(أسئلة خارجية - لا توجد إجابة)'}
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div style={{ display: 'flex', gap: '15px', marginTop: '10px' }}>
-                          {renderButton(`✔️ صحيح (${remoteData.team1Name})`, remoteData.t1Color, () => sendRemoteEvent({ type: 'CORRECT', team: 1 }))}
-                          {renderButton(`✔️ صحيح (${remoteData.team2Name})`, remoteData.t2Color, () => sendRemoteEvent({ type: 'CORRECT', team: 2 }))}
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '15px' }}>
-                          <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'WRONG' }); }} style={{ flex: 1, padding: '15px', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', color: '#ef4444', borderRadius: '15px', fontSize: '1.2rem', fontWeight: 'bold' }}>❌ إجابة خاطئة</button>
-                          <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'SKIP' }); }} style={{ flex: 1, padding: '15px', background: 'rgba(156, 163, 175, 0.1)', border: '2px solid gray', color: 'gray', borderRadius: '15px', fontSize: '1.2rem', fontWeight: 'bold' }}>⏭️ تخطي</button>
-                      </div>
-
-                      {/* Lifelines Remote Console */}
-                      {remoteData.team1Lifelines && remoteData.team2Lifelines && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '15px', background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' }}>
-                             <div style={{textAlign: 'center', color: '#facc15', fontWeight: 'bold', fontSize: '1.1rem', letterSpacing: '1px'}}>⚡ وسائل المساعدة ⚡</div>
-                             <div style={{ display: 'flex', gap: '15px' }}>
-                                {/* Team 1 */}
-                                <div style={{flex: 1, borderTop: `3px solid ${remoteData.t1Color}`, paddingTop:'15px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                                    <div style={{color: remoteData.t1Color, textAlign:'center', fontSize:'1rem', fontWeight:'900'}}>{remoteData.team1Name}</div>
-                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 1, lifeline: 'ai_assist'}); }} disabled={!remoteData.team1Lifelines.ai_assist} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team1Lifelines.ai_assist ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team1Lifelines.ai_assist ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent', color: remoteData.team1Lifelines.ai_assist ? '#fff' : '#475569', cursor: remoteData.team1Lifelines.ai_assist ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🧠 ذكاء حـــروف</button>
-                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 1, lifeline: 'silence'}); }} disabled={!remoteData.team1Lifelines.silence} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team1Lifelines.silence ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team1Lifelines.silence ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'transparent', color: remoteData.team1Lifelines.silence ? '#fff' : '#475569', cursor: remoteData.team1Lifelines.silence ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔇 تسكيت الخصم</button>
-                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 1, lifeline: 'changeQ'}); }} disabled={!remoteData.team1Lifelines.changeQ} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team1Lifelines.changeQ ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team1Lifelines.changeQ ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent', color: remoteData.team1Lifelines.changeQ ? '#fff' : '#475569', cursor: remoteData.team1Lifelines.changeQ ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔄 استبدال السؤال</button>
-                                </div>
-                                {/* Team 2 */}
-                                <div style={{flex: 1, borderTop: `3px solid ${remoteData.t2Color}`, paddingTop:'15px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                                    <div style={{color: remoteData.t2Color, textAlign:'center', fontSize:'1rem', fontWeight:'900'}}>{remoteData.team2Name}</div>
-                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 2, lifeline: 'ai_assist'}); }} disabled={!remoteData.team2Lifelines.ai_assist} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team2Lifelines.ai_assist ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team2Lifelines.ai_assist ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent', color: remoteData.team2Lifelines.ai_assist ? '#fff' : '#475569', cursor: remoteData.team2Lifelines.ai_assist ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🧠 ذكاء حـــروف</button>
-                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 2, lifeline: 'silence'}); }} disabled={!remoteData.team2Lifelines.silence} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team2Lifelines.silence ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team2Lifelines.silence ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'transparent', color: remoteData.team2Lifelines.silence ? '#fff' : '#475569', cursor: remoteData.team2Lifelines.silence ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔇 تسكيت الخصم</button>
-                                    <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type: 'LIFELINE', team: 2, lifeline: 'changeQ'}); }} disabled={!remoteData.team2Lifelines.changeQ} style={{padding:'12px 5px', borderRadius:'12px', border:!remoteData.team2Lifelines.changeQ ? '1px solid rgba(255,255,255,0.1)' : 'none', background: remoteData.team2Lifelines.changeQ ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent', color: remoteData.team2Lifelines.changeQ ? '#fff' : '#475569', cursor: remoteData.team2Lifelines.changeQ ? 'pointer' : 'not-allowed', fontWeight:'900', fontSize: '1rem'}}>🔄 استبدال السؤال</button>
-                                </div>
-                             </div>
-                          </div>
-                      )}
-
-                      {/* Reveal Answer on Screen */}
-                      <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'REVEAL' }); }} style={{ width: '100%', marginTop: '15px', padding: '18px', background: remoteData.isAnswerRevealed ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)', color: remoteData.isAnswerRevealed ? '#10b981' : '#fff', border: remoteData.isAnswerRevealed ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.2)', borderRadius: '15px', fontSize: '1.2rem', fontWeight: '900', transition: 'all 0.3s' }}>
-                          {remoteData.isAnswerRevealed ? '✅ الإجابة معروضة للجمهور' : '👁️ إظهار الإجابة للجمهور'}
+                      <button id="spy-toggle-timer" className="spy-action-btn" onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'TOGGLE_TIMER' }); }}
+                          style={{ background: remoteData?.isTimerRunning ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)', color: remoteData?.isTimerRunning ? '#f59e0b' : '#10b981', border: `1px solid ${remoteData?.isTimerRunning ? '#f59e0b44' : '#10b98144'}`, marginTop: '14px' }}>
+                          {remoteData?.isTimerRunning ? '⏸️ إيقاف المؤقت' : '▶️ تشغيل المؤقت'}
                       </button>
+                  </div>
+
+                  {/* Question Card — shows in ALL modes */}
+                  {remoteData?.currentQuestion && (
+                      <div className="spy-card" style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)' }}>
+                          <div className="spy-card-title">❓ السؤال الحالي</div>
+                          <div style={{ fontSize: '1.2rem', lineHeight: 1.7, color: '#e2e8f0', fontWeight: '700' }}>{remoteData.currentQuestion}</div>
+                      </div>
+                  )}
+
+                  {/* Answer — always visible to spy master (secret from audience) */}
+                  {remoteData?.currentAnswer && (
+                      <div className="spy-card" style={{ borderColor: 'rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.08)' }}>
+                          <div className="spy-card-title" style={{ color: '#60a5fa' }}>💡 الإجابة (سرية – للمُقدم فقط)</div>
+                          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#93c5fd', lineHeight: 1.2 }}>{remoteData.currentAnswer}</div>
+                      </div>
+                  )}
+
+                  {/* Human mode – prepared question preview (before broadcasting) */}
+                  {isHumanMode && spyQuestion && (
+                      <div className="spy-card" style={{ borderColor: 'rgba(250,204,21,0.3)', background: 'rgba(250,204,21,0.05)' }}>
+                          <div className="spy-card-title" style={{ color: '#fbbf24' }}>📋 السؤال المُعدّ – اضغط بث للإرسال</div>
+                          <div style={{ fontSize: '1.1rem', lineHeight: 1.6, color: '#fef3c7' }}>{spyQuestion}</div>
+                          {spyAnswer && <div style={{ marginTop: '8px', color: '#fbbf24', fontSize: '0.9rem', fontWeight: '700' }}>الإجابة: {spyAnswer}</div>}
+                          <button id="spy-send-q" className="spy-action-btn" onClick={() => { AudioEngine.play('click'); sendQ(); }}
+                              style={{ background: '#facc15', color: '#000', marginTop: '12px' }}>📡 بث السؤال على الشاشة</button>
+                      </div>
+                  )}
+
+                  {/* Reveal Answer Button */}
+                  <button id="spy-reveal" className="spy-action-btn" onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'REVEAL' }); }}
+                      style={{ background: remoteData?.isAnswerRevealed ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: remoteData?.isAnswerRevealed ? '#10b981' : '#fff', border: `1.5px solid ${remoteData?.isAnswerRevealed ? '#10b981' : 'rgba(255,255,255,0.15)'}` }}>
+                      {remoteData?.isAnswerRevealed ? '✅ الإجابة معروضة للجمهور' : '👁️ إظهار الإجابة للجمهور'}
+                  </button>
+
+                  {/* Score Buttons */}
+                  {cellActive && remoteData && (
+                      <div style={{ display: 'flex', gap: '12px' }}>
+                          <button id="spy-correct-t1" className="spy-action-btn" onClick={() => { AudioEngine.play('correct'); sendRemoteEvent({ type: 'CORRECT', team: 1 }); }}
+                              style={{ flex: 1, background: remoteData.t1Color, color: '#fff', boxShadow: `0 8px 25px ${remoteData.t1Color}55` }}>
+                              ✔️ {remoteData.team1Name || 'الفريق 1'}
+                          </button>
+                          <button id="spy-correct-t2" className="spy-action-btn" onClick={() => { AudioEngine.play('correct'); sendRemoteEvent({ type: 'CORRECT', team: 2 }); }}
+                              style={{ flex: 1, background: remoteData.t2Color, color: '#fff', boxShadow: `0 8px 25px ${remoteData.t2Color}55` }}>
+                              ✔️ {remoteData.team2Name || 'الفريق 2'}
+                          </button>
+                      </div>
+                  )}
+
+                  {cellActive && (
+                      <div style={{ display: 'flex', gap: '12px' }}>
+                          <button id="spy-wrong" className="spy-outline-btn" onClick={() => { AudioEngine.play('wrong'); sendRemoteEvent({ type: 'WRONG' }); }}
+                              style={{ flex: 1, color: '#ef4444', border: '2px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.08)' }}>❌ خاطئة</button>
+                          <button id="spy-skip" className="spy-outline-btn" onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'SKIP' }); }}
+                              style={{ flex: 1, color: '#64748b', border: '2px solid rgba(100,116,139,0.3)', background: 'rgba(100,116,139,0.06)' }}>⏭️ تخطي</button>
+                      </div>
+                  )}
+
+                  {!cellActive && (
+                      <div style={{ textAlign: 'center', padding: '50px 20px', color: '#334155' }}>
+                          <div style={{ fontSize: '3rem', marginBottom: '15px' }}>🎯</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: '700' }}>في انتظار اختيار خلية من الشاشة الرئيسية...</div>
+                      </div>
+                  )}
                   </>
               )}
+
+              {/* ===== TAB: COMPOSE (Human mode only) ===== */}
+              {spyTab === 'compose' && isHumanMode && (
+                  <>
+                  <div className="spy-card">
+                      <div className="spy-card-title">✏️ أدخل السؤال الخارجي</div>
+                      <textarea id="spy-question-input" className="spy-input" rows={4} placeholder="اكتب السؤال هنا..." value={spyQuestion} onChange={e => setSpyQuestion(e.target.value)} />
+                  </div>
+                  <div className="spy-card">
+                      <div className="spy-card-title">💡 الإجابة (اختياري – سرية)</div>
+                      <input id="spy-answer-input" className="spy-input" type="text" placeholder="الإجابة الصحيحة..." value={spyAnswer} onChange={e => setSpyAnswer(e.target.value)} />
+                  </div>
+                  <button id="spy-broadcast" className="spy-action-btn" onClick={() => { AudioEngine.play('click'); sendQ(); setSpyTab('control'); }}
+                      style={{ background: 'linear-gradient(135deg, #facc15, #f59e0b)', color: '#000', fontSize: '1.2rem', boxShadow: '0 8px 25px rgba(250,204,21,0.35)' }}>
+                      📡 بث السؤال على الشاشة الكبيرة
+                  </button>
+                  <button className="spy-outline-btn" onClick={() => { setSpyQuestion(''); setSpyAnswer(''); AudioEngine.play('click'); }}
+                      style={{ color: '#64748b', border: '1px solid rgba(100,116,139,0.3)' }}>🗑️ مسح</button>
+                  </>
+              )}
+
+              {/* ===== TAB: LIFELINES ===== */}
+              {spyTab === 'lifelines' && remoteData?.team1Lifelines && remoteData?.team2Lifelines && (
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                      {/* Team 1 */}
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ textAlign: 'center', color: remoteData.t1Color, fontWeight: '900', padding: '10px', background: remoteData.t1Color + '22', borderRadius: '12px', fontSize: '1rem' }}>{remoteData.team1Name || 'الفريق 1'}</div>
+                          <button id="spy-ll-t1-ai" className="spy-lifeline-btn" disabled={!remoteData.team1Lifelines.ai_assist}
+                              onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type:'LIFELINE', team:1, lifeline:'ai_assist'}); }}
+                              style={{ background: remoteData.team1Lifelines.ai_assist ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'rgba(255,255,255,0.05)', color: remoteData.team1Lifelines.ai_assist ? '#fff' : '#475569', border: remoteData.team1Lifelines.ai_assist ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>🧠 ذكاء حروف</button>
+                          <button id="spy-ll-t1-sil" className="spy-lifeline-btn" disabled={!remoteData.team1Lifelines.silence}
+                              onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type:'LIFELINE', team:1, lifeline:'silence'}); }}
+                              style={{ background: remoteData.team1Lifelines.silence ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'rgba(255,255,255,0.05)', color: remoteData.team1Lifelines.silence ? '#fff' : '#475569', border: remoteData.team1Lifelines.silence ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>🔇 تسكيت</button>
+                          <button id="spy-ll-t1-chq" className="spy-lifeline-btn" disabled={!remoteData.team1Lifelines.changeQ}
+                              onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type:'LIFELINE', team:1, lifeline:'changeQ'}); }}
+                              style={{ background: remoteData.team1Lifelines.changeQ ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'rgba(255,255,255,0.05)', color: remoteData.team1Lifelines.changeQ ? '#fff' : '#475569', border: remoteData.team1Lifelines.changeQ ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>🔄 استبدال</button>
+                      </div>
+                      {/* Team 2 */}
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ textAlign: 'center', color: remoteData.t2Color, fontWeight: '900', padding: '10px', background: remoteData.t2Color + '22', borderRadius: '12px', fontSize: '1rem' }}>{remoteData.team2Name || 'الفريق 2'}</div>
+                          <button id="spy-ll-t2-ai" className="spy-lifeline-btn" disabled={!remoteData.team2Lifelines.ai_assist}
+                              onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type:'LIFELINE', team:2, lifeline:'ai_assist'}); }}
+                              style={{ background: remoteData.team2Lifelines.ai_assist ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'rgba(255,255,255,0.05)', color: remoteData.team2Lifelines.ai_assist ? '#fff' : '#475569', border: remoteData.team2Lifelines.ai_assist ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>🧠 ذكاء حروف</button>
+                          <button id="spy-ll-t2-sil" className="spy-lifeline-btn" disabled={!remoteData.team2Lifelines.silence}
+                              onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type:'LIFELINE', team:2, lifeline:'silence'}); }}
+                              style={{ background: remoteData.team2Lifelines.silence ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'rgba(255,255,255,0.05)', color: remoteData.team2Lifelines.silence ? '#fff' : '#475569', border: remoteData.team2Lifelines.silence ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>🔇 تسكيت</button>
+                          <button id="spy-ll-t2-chq" className="spy-lifeline-btn" disabled={!remoteData.team2Lifelines.changeQ}
+                              onClick={() => { AudioEngine.play('click'); sendRemoteEvent({type:'LIFELINE', team:2, lifeline:'changeQ'}); }}
+                              style={{ background: remoteData.team2Lifelines.changeQ ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'rgba(255,255,255,0.05)', color: remoteData.team2Lifelines.changeQ ? '#fff' : '#475569', border: remoteData.team2Lifelines.changeQ ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>🔄 استبدال</button>
+                      </div>
+                  </div>
+              )}
+
+              </div>
           </div>
           </>
       );
@@ -968,27 +1134,33 @@ function App() {
                 </button>
             )}
 
-            {isGameStarted && hostMode === 'human' && !remoteConnection && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(5,5,8,0.95)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)' }}>
-                    <h2 style={{ fontSize: '3rem', color: '#fff', marginBottom: '20px' }}>📱 اقتران جهاز المُقدم</h2>
-                    <p style={{ fontSize: '1.5rem', color: '#a1a1aa', marginBottom: '40px', maxWidth: '600px', textAlign: 'center', lineHeight: '1.6' }}>
-                        الرجاء فتح كاميرا جوالك ومسح رمز الاستجابة السريعة (QR Code) لتفعيل غرفة التحكم السرية. ستختفي هذه الشاشة تلقائياً بمجرد اتصالك بنجاح.
-                    </p>
-                    <div style={{ background: '#fff', padding: '30px', borderRadius: '24px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                        <QRCode value={`${window.location.origin}${window.location.pathname}?remote=${peerId}`} size={250} />
-                        <div style={{ marginTop: '20px', background: '#f8fafc', padding: '10px 20px', borderRadius: '8px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
-                            <p style={{ margin: '0 0 5px 0', fontSize: '0.9rem', color: '#64748b', textAlign: 'center' }}>أو انسخ الرابط المباشر للتجربة:</p>
-                            <input 
-                                type="text" 
-                                readOnly 
-                                value={`${window.location.origin}${window.location.pathname}?remote=${peerId}`}
-                                onClick={(e) => { e.target.select(); navigator.clipboard.writeText(e.target.value); AudioEngine.play('click'); }}
-                                style={{ width: '100%', padding: '10px', fontSize: '0.9rem', color: '#0f172a', background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', outline: 'none' }}
-                                title="انقر للنسخ"
-                            />
-                        </div>
-                    </div>
-                    <button onClick={() => {AudioEngine.play('click'); setIsGameStarted(false)}} style={{ marginTop: '50px', background: 'transparent', color: '#ef4444', border: '2px solid #ef4444', padding: '15px 40px', borderRadius: '16px', fontSize: '1.2rem', cursor: 'pointer', fontWeight: 'bold' }}>إلغاء والعودة للإعدادات</button>
+            {isGameStarted && hostMode === 'human' && (
+                <div style={{
+                    position: 'fixed', top: '15px', right: '50%', transform: 'translateX(50%)',
+                    zIndex: 9990, display: 'flex', alignItems: 'center', gap: '12px',
+                    background: remoteConnection ? 'rgba(16,185,129,0.15)' : 'rgba(250,204,21,0.12)',
+                    border: `1px solid ${remoteConnection ? 'rgba(16,185,129,0.4)' : 'rgba(250,204,21,0.4)'}`,
+                    borderRadius: '30px', padding: '10px 22px', backdropFilter: 'blur(20px)',
+                    boxShadow: `0 4px 20px ${remoteConnection ? 'rgba(16,185,129,0.2)' : 'rgba(250,204,21,0.2)'}`,
+                    transition: 'all 0.5s ease', cursor: remoteConnection ? 'default' : 'pointer'
+                }}
+                    onClick={() => {
+                        if (!remoteConnection) {
+                            const url = `${window.location.origin}${window.location.pathname}?remote=${peerId}`;
+                            navigator.clipboard.writeText(url).then(() => AudioEngine.play('win'));
+                        }
+                    }}
+                    title={remoteConnection ? '' : 'انقر لنسخ رابط المُقدم'}
+                >
+                    <div style={{
+                        width: '10px', height: '10px', borderRadius: '50%',
+                        background: remoteConnection ? '#10b981' : '#facc15',
+                        boxShadow: `0 0 10px ${remoteConnection ? '#10b981' : '#facc15'}`,
+                        animation: remoteConnection ? 'none' : 'alertPulse 1.5s infinite'
+                    }} />
+                    <span style={{ color: remoteConnection ? '#34d399' : '#facc15', fontWeight: '900', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
+                        {remoteConnection ? '✅ المُقدم متصل' : '🎙️ انقر لنسخ رابط المُقدم'}
+                    </span>
                 </div>
             )}
 
@@ -1047,7 +1219,23 @@ function App() {
                             <p style={{ fontSize: isMobile ? '0.85rem' : '1rem', color: '#475569', margin: '10px 0 0 0', fontWeight: '700', letterSpacing: '4px', textTransform: 'uppercase' }}>محطة الإعداد التكتيكي</p>
                             <div style={{ width: '80px', height: '2px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)', margin: '15px auto 0', borderRadius: '2px' }}></div>
                         </div>
-                        
+                         
+                        {/* ── Scrolling Arabic Letters Ticker ── */}
+                        {(() => {
+                            const letters = 'أ ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن هـ و ي'.split(' ');
+                            const doubled = [...letters, ...letters]; // duplicate for seamless loop
+                            return (
+                                <div className="letter-ticker-wrap" style={{ marginBottom: isMobile ? '10px' : '20px' }}>
+                                    <div className="letter-ticker-inner" dir="ltr">
+                                        {doubled.map((l, i) => (
+                                            <span key={i}>{l}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
+
                         <div className="esport-panel">
                             <h3 className="panel-title">🏆 نظام التنافس والانتصار</h3>
                             <div className="settings-flex" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
@@ -1065,22 +1253,11 @@ function App() {
                             <h3 className="panel-title">🎙️ إدارة المواجهة والمُقدم</h3>
                             <div className="settings-flex" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                                 <button className={`pulse-btn ${hostMode === 'smart' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setHostMode('smart')}}>🤖 مُقدم ذكي (أسئلة مدمجة)</button>
-                                <div style={{ position: 'relative' }}>
-                                    <button 
-                                        className="pulse-btn" 
-                                        disabled 
-                                        style={{ opacity: 0.4, cursor: 'not-allowed', filter: 'blur(1px) grayscale(100%)' }}
-                                    >
-                                        👤 مُقدم إنسان (أسئلة خارجية)
-                                    </button>
-                                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: '#ef4444', color: '#fff', padding: '4px 12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.9rem', zIndex: 10, boxShadow: '0 0 15px rgba(239, 68, 68, 0.8)', whiteSpace: 'nowrap' }}>
-                                        قريباً ⏳
-                                    </div>
-                                </div>
+                                <button className={`pulse-btn ${hostMode === 'human' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setHostMode('human')}}>👤 مُقدم إنسان (أسئلة خارجية)</button>
                             </div>
                             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px 20px', borderRadius: '12px', marginTop: '20px', borderRight: '4px solid #3b82f6' }}>
                                 <p style={{color: '#a1a1aa', fontSize: '1rem', margin: 0, fontWeight: '600'}}>
-                                    {hostMode === 'smart' ? 'يقوم النظام تلقائياً بسحب وطرح الأسئلة وتوفير التلميحات والأجوبة.' : 'يستخدم المقدم أسئلة من كروته الخاصة ويتحكم بتوزيع النقاط مباشرة على الشاشة.'}
+                                    {hostMode === 'smart' ? 'يقوم النظام تلقائياً بسحب وطرح الأسئلة وتوفير التلميحات والأجوبة.' : '👤 المُقدم يتحكم بكل شيء من جواله: الأسئلة، الأجوبة، المؤقت، وتوزيع النقاط. امسح QR Code لربط جهاز المُقدم.'}
                                 </p>
                             </div>
                         </div>
@@ -1143,6 +1320,78 @@ function App() {
                                 <button className={`pulse-btn btn-mixed ${difficulty === 'mixed' ? 'active' : ''}`} onClick={() => {AudioEngine.play('hover'); setDifficulty('mixed')}} style={{ background: difficulty === 'mixed' ? 'linear-gradient(90deg, #10b981, #facc15, #ef4444)' : '', color: difficulty === 'mixed' ? '#000' : '' }}>🌀 متوازن</button>
                             </div>
                         </div>
+
+                        {/* === بانر QR للمُقدم الإنسان (يظهر قبل بدء اللعبة) === */}
+                        {hostMode === 'human' && peerId && (
+                            <div className="esport-panel" style={{
+                                borderTop: '4px solid #facc15',
+                                background: 'linear-gradient(135deg, rgba(250,204,21,0.08), rgba(245,158,11,0.03))',
+                                boxShadow: '0 0 40px rgba(250,204,21,0.12)',
+                                display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+                                gap: '30px', alignItems: 'center'
+                            }}>
+                                {/* QR Code */}
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                                    <div style={{ background: '#fff', padding: '18px', borderRadius: '20px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', display: 'inline-block' }}>
+                                        <QRCode value={`${window.location.origin}${window.location.pathname}?remote=${peerId}`} size={isMobile ? 160 : 200} />
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', letterSpacing: '2px', textTransform: 'uppercase', fontWeight: '700' }}>
+                                        {remoteConnection ? '✅ متصل' : '⏳ في انتظار اتصال المُقدم...'}
+                                    </div>
+                                </div>
+
+                                {/* Instructions + Copy Link */}
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div>
+                                        <h3 style={{ margin: '0 0 8px 0', color: '#facc15', fontSize: '1.4rem', fontWeight: '900' }}>
+                                            🎙️ ربط جهاز المُقدم
+                                        </h3>
+                                        <p style={{ margin: 0, color: '#94a3b8', lineHeight: 1.7, fontSize: '1rem', fontWeight: '600' }}>
+                                            قبل بدء اللعبة، امسح الـ QR Code بجوال المُقدم أو انسخ الرابط وأرسله له.
+                                            بعد الاتصال، ابدأ اللعبة وتحكم في كل شيء من الجوال.
+                                        </p>
+                                    </div>
+
+                                    {/* نسخ الرابط */}
+                                    <div
+                                        onClick={() => {
+                                            const url = `${window.location.origin}${window.location.pathname}?remote=${peerId}`;
+                                            navigator.clipboard.writeText(url).then(() => AudioEngine.play('win'));
+                                        }}
+                                        style={{
+                                            background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(250,204,21,0.3)',
+                                            borderRadius: '12px', padding: '14px 18px', cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', gap: '12px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        title="انقر للنسخ"
+                                        onMouseOver={e => e.currentTarget.style.borderColor = '#facc15'}
+                                        onMouseOut={e => e.currentTarget.style.borderColor = 'rgba(250,204,21,0.3)'}
+                                    >
+                                        <span style={{ fontSize: '1.3rem' }}>📋</span>
+                                        <span style={{
+                                            color: '#e2e8f0', fontSize: '0.85rem', fontFamily: 'monospace',
+                                            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                            direction: 'ltr', textAlign: 'left'
+                                        }}>
+                                            {`${window.location.origin}${window.location.pathname}?remote=${peerId}`}
+                                        </span>
+                                        <span style={{ color: '#facc15', fontSize: '0.8rem', fontWeight: '900', flexShrink: 0 }}>نسخ</span>
+                                    </div>
+
+                                    {remoteConnection && (
+                                        <div style={{
+                                            background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)',
+                                            borderRadius: '12px', padding: '12px 18px', color: '#34d399',
+                                            fontWeight: '900', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '10px'
+                                        }}>
+                                            <span style={{ fontSize: '1.3rem' }}>✅</span>
+                                            المُقدم متصل! يمكنك الآن بدء اللعبة.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         <button className="launch-btn" style={{marginTop: '10px'}} onClick={() => {AudioEngine.play('win'); setIsGameStarted(true)}}>
                             تهيئة الساحة وبدء المواجهة
@@ -1308,8 +1557,8 @@ function App() {
                                     {virusCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(147, 51, 234, 0.1))', color: '#e9d5ff', border: '1px solid rgba(168, 85, 247, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(168,85,247,0.3)', backdropFilter: 'blur(5px)' }}>🦠 فـيروس الانتـشـار 🦠</div>}
                                 </div>
                                 
-                                {/* عرض السؤال فقط في نمط (المقدم الذكي) */}
-                                {hostMode === 'smart' && (
+                                {/* عرض السؤال في جميع الأنماط */}
+                                {currentQuestion && (
                                     <div style={{ 
                                         fontSize: isMobile ? '1.3rem' : '3rem', 
                                         color: '#fff', 
@@ -1328,10 +1577,11 @@ function App() {
                                 {currentAnswer && (
                                 <div style={{ marginBottom: hostMode === 'human' ? '10px' : '50px', minHeight: hostMode === 'human' ? '0' : '100px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                     
-                                    {hostMode === 'smart' && !isAnswerRevealed && (
+                                    {/* زر كشف الإجابة (كلا النمطين) */}
+                                    {!isAnswerRevealed && (
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
                                             <button className="control-btn" onClick={() => {AudioEngine.play('click'); setIsAnswerRevealed(true)}} style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '20px 60px', borderRadius: '16px', fontSize: '1.5rem' }}>
-                                                كشف الإجابة (Space)
+                                                {hostMode === 'smart' ? 'كشف الإجابة (Space)' : 'كشف الإجابة للجمهور'}
                                             </button>
                                         </div>
                                     )}
