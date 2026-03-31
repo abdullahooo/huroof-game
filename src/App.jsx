@@ -1605,6 +1605,46 @@ function App() {
 
                     <div style={{ maxWidth: '1200px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', position: 'relative', zIndex: 10 }} className="anim-cinematic">
                         
+                        {/* 🔙 العودة لاختيار الطور */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '10px' : '20px' }}>
+                            <button 
+                                onClick={() => { AudioEngine.play('click'); setShowLobby(true); }}
+                                style={{ 
+                                    background: 'rgba(255,255,255,0.05)', 
+                                    border: '1px solid rgba(255,255,255,0.1)', 
+                                    color: '#fff', 
+                                    padding: '10px 20px', 
+                                    borderRadius: '12px', 
+                                    fontWeight: '900', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.9rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: '0.3s',
+                                    backdropFilter: 'blur(10px)',
+                                    fontFamily: 'inherit'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                            >
+                                <span>🔙</span> تغيير طور اللعب
+                            </button>
+
+                            <div style={{ 
+                                background: gameMode === 'online' ? 'rgba(250,204,21,0.12)' : 'rgba(59,130,246,0.12)', 
+                                color: gameMode === 'online' ? '#facc15' : '#60a5fa',
+                                border: `1px solid ${gameMode === 'online' ? 'rgba(250,204,21,0.3)' : 'rgba(59,130,246,0.3)'}`,
+                                padding: '8px 18px',
+                                borderRadius: '30px',
+                                fontSize: '0.8rem',
+                                fontWeight: '900',
+                                letterSpacing: '1px'
+                            }}>
+                                {gameMode === 'online' ? '🌐 طور أون لاين' : '📺 طور محلي'}
+                            </div>
+                        </div>
+                        
                         <div style={{ textAlign: 'center', marginBottom: isMobile ? '10px' : '30px', position: 'relative' }}>
                             <div style={{ display: 'inline-block', position: 'relative' }}>
                                 <h1 className="logo-title" style={{ fontSize: isMobile ? '2.5rem' : '5.5rem', fontWeight: '900', margin: '0', color: '#fff', letterSpacing: '-1px', lineHeight: 1 }}>
