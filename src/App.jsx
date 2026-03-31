@@ -157,6 +157,21 @@ function App() {
   const [hostMode, setHostMode] = useState('smart'); 
   const [modes, setModes] = useState({ gold: false, mines: false, virus: false, blind: false });
 
+  // === Online PvP State ===
+  const initialPvpId = new URLSearchParams(window.location.search).get('pvp');
+  const isOnlineGuest = !!initialPvpId;
+  const [showLobby, setShowLobby] = useState(!initialPvpId && !new URLSearchParams(window.location.search).get('remote'));
+  const [gameMode, setGameMode] = useState('local'); // 'local' | 'online'
+  const [onlineRole, setOnlineRole] = useState(isOnlineGuest ? 'guest' : null);
+  const [pvpRoomId, setPvpRoomId] = useState('');
+  const [pvpGuestConnected, setPvpGuestConnected] = useState(false);
+  const [pvpJoinInput, setPvpJoinInput] = useState(initialPvpId || '');
+  const [pvpSyncData, setPvpSyncData] = useState(null);
+  const [pvpConnectionError, setPvpConnectionError] = useState(initialPvpId ? 'جاري الاتصال بالغرفة...' : '');
+  const [pvpActionTrigger, setPvpActionTrigger] = useState(null);
+  const [onlineSubScreen, setOnlineSubScreen] = useState('choose'); // 'choose' | 'host_wait' | 'join'
+  const pvpMqttRef = useRef(null);
+
   // === PeerJS Remote Control State ===
   const initialRemoteId = new URLSearchParams(window.location.search).get('remote');
   
@@ -207,6 +222,7 @@ function App() {
   const [silencedTimer, setSilencedTimer] = useState(0);
   const [silencedTeam, setSilencedTeam] = useState(null);
   const [aiAssistState, setAiAssistState] = useState({ isProcessing: false, active: false, hint: '', log: '' });
+  const [isQuestionHidden, setIsQuestionHidden] = useState(false); // هل السؤال مخفي عن الجمهور؟
 
   // === إعدادات اتصال الجوال (MQTT Broker عبر WebSockets) ===
   const mqttClientRef = useRef(null);
@@ -291,6 +307,45 @@ function App() {
     };
   }, [initialRemoteId]);
 
+  // === Online PvP MQTT ===
+  useEffect(() => {
+    const guestId = initialPvpId;
+    const hostRoomId = pvpRoomId;
+    if (!guestId && !hostRoomId) return;
+    const roomId = guestId || hostRoomId;
+    const clientId = 'huroof_pvp_' + Math.random().toString(16).substr(2, 8);
+    const pvpClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+      clientId, keepalive: 30, reconnectPeriod: 3000, connectTimeout: 20000, clean: true
+    });
+    pvpMqttRef.current = pvpClient;
+    if (guestId) {
+      const doConnect = () => {
+        pvpClient.subscribe(`huroof/pvp/${guestId}/h2g`);
+        pvpClient.publish(`huroof/pvp/${guestId}/g2h`, JSON.stringify({ type: 'GUEST_CONNECTED' }));
+      };
+      pvpClient.on('connect', () => { setPvpConnectionError(''); doConnect(); });
+      pvpClient.on('reconnect', () => { setPvpConnectionError('جاري إعادة الاتصال...'); });
+      pvpClient.on('offline', () => setPvpConnectionError('جاري الاتصال بالغرفة...'));
+      pvpClient.on('message', (_, msg) => {
+        try {
+          const data = JSON.parse(msg.toString());
+          if (data.type === 'GAME_STATE') setPvpSyncData(data);
+        } catch(e) {}
+      });
+    } else {
+      pvpClient.on('connect', () => pvpClient.subscribe(`huroof/pvp/${hostRoomId}/g2h`));
+      pvpClient.on('reconnect', () => pvpClient.subscribe(`huroof/pvp/${hostRoomId}/g2h`));
+      pvpClient.on('message', (_, msg) => {
+        try {
+          const data = JSON.parse(msg.toString());
+          if (data.type === 'GUEST_CONNECTED') setPvpGuestConnected(true);
+          else setPvpActionTrigger(data);
+        } catch(e) {}
+      });
+    }
+    return () => { pvpClient.end(true); pvpMqttRef.current = null; };
+  }, [pvpRoomId, initialPvpId]);
+
   const handleRemoteAction = useCallback((data) => {
       setRemoteActionTrigger(data);
   }, []);
@@ -301,20 +356,76 @@ function App() {
           const payload = {
               type: 'STATE_UPDATE',
               hostMode,
-              activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed,
+              activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, isQuestionHidden,
               team1Name: team1Name || 'الفريق الأول', team2Name: team2Name || 'الفريق الثاني',
               t1Color: team1Color, t2Color: team2Color, isTimerRunning,
               team1Lifelines, team2Lifelines, aiAssistState
           };
           mqttClientRef.current?.publish(`huroof/room/${peerId}/to_remote`, JSON.stringify(payload));
       }
-  }, [remoteConnection, peerId, hostMode, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, team1Lifelines, team2Lifelines, aiAssistState, isRemoteClient]);
+  }, [remoteConnection, peerId, hostMode, activeCell, currentQuestion, currentAnswer, timeLeft, isAnswerRevealed, team1Name, team2Name, team1Color, team2Color, isTimerRunning, team1Lifelines, team2Lifelines, aiAssistState, isRemoteClient, isQuestionHidden]);
+
+  // Host → Guest: sync full game state إلى لاعب الأون لاين
+  useEffect(() => {
+    if (gameMode !== 'online' || onlineRole !== 'host' || !pvpMqttRef.current || !pvpRoomId || !isGameStarted) return;
+    const payload = {
+      type: 'GAME_STATE', cells, letters: [...letters], activeCell, currentQuestion, currentAnswer,
+      isAnswerRevealed, timeLeft, isTimerRunning, team1Score, team2Score, team1Wins, team2Wins,
+      currentRound, maxRounds, roundWinner, matchWinner, explodedMine, goldenCells, mineCells, virusCells,
+      gridSize, victoryCondition, team1Name: team1Name || 'الفريق الأول', team2Name: team2Name || 'الفريق الثاني',
+      team1Color, team2Color, team1Lifelines, team2Lifelines
+    };
+    pvpMqttRef.current?.publish(`huroof/pvp/${pvpRoomId}/h2g`, JSON.stringify(payload));
+  }, [gameMode, onlineRole, pvpRoomId, isGameStarted, cells, activeCell, currentQuestion, currentAnswer,
+      isAnswerRevealed, timeLeft, isTimerRunning, team1Score, team2Score, team1Wins, team2Wins,
+      currentRound, roundWinner, matchWinner, explodedMine]);
+
+  // Guest: تطبيق الـ state المستلم من الـ host
+  useEffect(() => {
+    if (!pvpSyncData || !isOnlineGuest) return;
+    const d = pvpSyncData;
+    if (d.cells) setCells(d.cells);
+    if (d.letters) setLetters(d.letters);
+    setActiveCell(d.activeCell ?? null);
+    if (d.currentQuestion !== undefined) setCurrentQuestion(d.currentQuestion);
+    if (d.currentAnswer !== undefined) setCurrentAnswer(d.currentAnswer);
+    if (d.isAnswerRevealed !== undefined) setIsAnswerRevealed(d.isAnswerRevealed);
+    if (d.timeLeft !== undefined) setTimeLeft(d.timeLeft);
+    if (d.isTimerRunning !== undefined) setIsTimerRunning(d.isTimerRunning);
+    if (d.team1Score !== undefined) setTeam1Score(d.team1Score);
+    if (d.team2Score !== undefined) setTeam2Score(d.team2Score);
+    if (d.team1Wins !== undefined) setTeam1Wins(d.team1Wins);
+    if (d.team2Wins !== undefined) setTeam2Wins(d.team2Wins);
+    if (d.currentRound !== undefined) setCurrentRound(d.currentRound);
+    if (d.maxRounds !== undefined) setMaxRounds(d.maxRounds);
+    if (d.roundWinner !== undefined) setRoundWinner(d.roundWinner);
+    if (d.matchWinner !== undefined) setMatchWinner(d.matchWinner);
+    if (d.explodedMine !== undefined) setExplodedMine(d.explodedMine);
+    if (d.goldenCells) setGoldenCells(d.goldenCells);
+    if (d.mineCells) setMineCells(d.mineCells);
+    if (d.virusCells) setVirusCells(d.virusCells);
+    if (d.gridSize) setGridSize(d.gridSize);
+    if (d.victoryCondition) setVictoryCondition(d.victoryCondition);
+    if (d.team1Name) setTeam1Name(d.team1Name);
+    if (d.team2Name) setTeam2Name(d.team2Name);
+    if (d.team1Color) setTeam1Color(d.team1Color);
+    if (d.team2Color) setTeam2Color(d.team2Color);
+    if (d.team1Lifelines) setTeam1Lifelines(d.team1Lifelines);
+    if (d.team2Lifelines) setTeam2Lifelines(d.team2Lifelines);
+    if (!isGameStarted) setIsGameStarted(true);
+  }, [pvpSyncData]);
 
   // دالة مخصصة لإرسال الأوامر تعمل من الجوال للشاشة
   const sendRemoteEvent = (data) => {
       if (initialRemoteId) {
           mqttClientRef.current?.publish(`huroof/room/${initialRemoteId}/to_host`, JSON.stringify(data));
       }
+  };
+
+  const sendGuestAction = (data) => {
+    if (isOnlineGuest && initialPvpId) {
+      pvpMqttRef.current?.publish(`huroof/pvp/${initialPvpId}/g2h`, JSON.stringify(data));
+    }
   };
 
   const toggleMode = (mode) => { AudioEngine.play('click'); setModes(prev => ({...prev, [mode]: !prev[mode]})); };
@@ -456,6 +567,7 @@ function App() {
   };
 
   const handleCellClick = async (index) => {
+    if (isOnlineGuest) return;
     if (roundWinner || matchWinner) return;
     if (cells[index] === 0) {
       AudioEngine.play('click');
@@ -592,12 +704,25 @@ function App() {
               setIsAnswerRevealed(true);
           } else if (data.type === 'TOGGLE_TIMER') {
               setIsTimerRunning(prev => !prev);
+          } else if (data.type === 'TOGGLE_Q_VISIBILITY') {
+              setIsQuestionHidden(prev => !prev);
           } else if (data.type === 'LIFELINE') {
               useLifeline(data.team, data.lifeline);
           }
           setRemoteActionTrigger(null);
       }
   }, [remoteActionTrigger, handleAnswer, useLifeline]);
+
+  // Online Guest → Host actions
+  useEffect(() => {
+    if (!pvpActionTrigger) return;
+    const data = pvpActionTrigger;
+    AudioEngine.play('click');
+    if (data.type === 'ONLINE_CORRECT') handleAnswer(2);
+    else if (data.type === 'ONLINE_WRONG') { AudioEngine.play('wrong'); setActiveCell(null); }
+    else if (data.type === 'ONLINE_SKIP') setActiveCell(null);
+    setPvpActionTrigger(null);
+  }, [pvpActionTrigger, handleAnswer]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -980,6 +1105,7 @@ function App() {
               {/* ===== TAB: CONTROL ===== */}
               {spyTab === 'control' && (
                   <>
+                  {/* === بطاقة السؤال الحالي — مع زر الإخفاء والكشف === */}
                   {/* Timer */}
                   <div className="spy-card">
                       <div className="spy-card-title">⏱️ المؤقت</div>
@@ -992,11 +1118,34 @@ function App() {
                       </button>
                   </div>
 
-                  {/* Question Card — shows in ALL modes */}
+                  {/* Question Card — مع ميزة الإخفاء/الإظهار */}
                   {remoteData?.currentQuestion && (
-                      <div className="spy-card" style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)' }}>
-                          <div className="spy-card-title">❓ السؤال الحالي</div>
+                      <div className="spy-card" style={{ borderColor: remoteData?.isQuestionHidden ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.12)', background: remoteData?.isQuestionHidden ? 'rgba(239,68,68,0.06)' : 'rgba(255,255,255,0.04)', transition: 'all 0.3s' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                              <div className="spy-card-title" style={{ margin: 0 }}>❓ السؤال الحالي</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{ fontSize: '0.7rem', color: remoteData?.isQuestionHidden ? '#ef4444' : '#10b981', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                                      {remoteData?.isQuestionHidden ? '🙈 مخفي' : '👁️ ظاهر'}
+                                  </span>
+                                  <button onClick={() => { AudioEngine.play('click'); sendRemoteEvent({ type: 'TOGGLE_Q_VISIBILITY' }); }}
+                                      style={{
+                                          background: remoteData?.isQuestionHidden ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.15)',
+                                          border: `1px solid ${remoteData?.isQuestionHidden ? '#ef4444' : '#10b981'}`,
+                                          color: remoteData?.isQuestionHidden ? '#ef4444' : '#10b981',
+                                          borderRadius: '10px', padding: '6px 14px', cursor: 'pointer',
+                                          fontFamily: 'inherit', fontWeight: '900', fontSize: '0.85rem', transition: 'all 0.2s'
+                                      }}>
+                                      {remoteData?.isQuestionHidden ? '👁️ أظهر للجمهور' : '🙈 أخفِ عن الجمهور'}
+                                  </button>
+                              </div>
+                          </div>
                           <div style={{ fontSize: '1.2rem', lineHeight: 1.7, color: '#e2e8f0', fontWeight: '700' }}>{remoteData.currentQuestion}</div>
+                          {remoteData?.isQuestionHidden && (
+                              <div style={{ marginTop: '10px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontSize: '1.1rem' }}>🚫</span>
+                                  <span style={{ color: '#fca5a5', fontSize: '0.85rem', fontWeight: '700' }}>مخفي عن الجمهور — الشاشة تعرض نقاط بدل السؤال</span>
+                              </div>
+                          )}
                       </div>
                   )}
 
@@ -1113,6 +1262,253 @@ function App() {
           </div>
           </>
       );
+  }
+
+  // ====== شاشة الاتصال للضيف (أون لاين) ======
+  if (isOnlineGuest && !isGameStarted) {
+    return (
+      <>
+        <style>{globalStyles}</style>
+        <div style={{ background: '#050508', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cairo, sans-serif', color: 'white', padding: '20px', textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '20px', animation: 'titleFloat 2s ease-in-out infinite' }}>
+            {pvpConnectionError ? '🔄' : '⚡'}
+          </div>
+          <h2 className="logo-title" style={{ fontSize: '2.2rem', margin: '0 0 8px 0' }}>حروف ZONE</h2>
+          <div style={{ color: '#facc15', fontWeight: '800', fontSize: '0.85rem', letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '20px' }}>ONLINE VERSUS</div>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '20px', padding: '30px 40px', marginBottom: '20px' }}>
+            <p style={{ color: pvpConnectionError ? '#f59e0b' : '#10b981', margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: '800' }}>
+              {pvpConnectionError || '✅ متصل — في انتظار بدء اللعبة...'}
+            </p>
+            <p style={{ color: '#475569', fontSize: '0.9rem', margin: 0 }}>
+              {pvpConnectionError ? 'يتم إعادة المحاولة تلقائياً...' : 'انتظر بدء اللعبة من المضيف'}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {[0,1,2].map(i => <div key={i} style={{ width: '12px', height: '12px', borderRadius: '50%', background: pvpConnectionError ? '#f59e0b' : '#facc15', animation: `fall 1.2s ease-in-out ${i * 0.2}s infinite alternate`, opacity: 0.7 }}/>)}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ====== شاشة اللوبي الرئيسية ======
+  if (showLobby) {
+    // شاشة انتظار المضيف (بعد إنشاء الغرفة)
+    if (onlineSubScreen === 'host_wait') {
+      const pvpUrl = `${window.location.origin}${window.location.pathname}?pvp=${pvpRoomId}`;
+      return (
+        <>
+          <style>{globalStyles}</style>
+          <style>{`
+            .lobby-bg { min-height: 100vh; background: radial-gradient(ellipse at top, #11111a 0%, #050508 80%); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px 20px; font-family: 'Cairo', sans-serif; color: white; }
+            .lobby-card { background: rgba(10,10,20,0.9); border: 1px solid rgba(255,255,255,0.08); border-radius: 28px; padding: 40px; max-width: 600px; width: 100%; box-shadow: 0 40px 80px rgba(0,0,0,0.6); backdrop-filter: blur(30px); }
+            @keyframes onlinePulse { 0%,100%{box-shadow: 0 0 0 0 rgba(250,204,21,0.4);} 50%{box-shadow: 0 0 0 20px rgba(250,204,21,0);} }
+            .pvp-copy-link { background: rgba(0,0,0,0.5); border: 1px solid rgba(250,204,21,0.3); border-radius: 14px; padding: 14px 18px; cursor: pointer; display: flex; align-items: center; gap: 12px; transition: 0.2s; margin-top: 16px; }
+            .pvp-copy-link:hover { border-color: #facc15; }
+          `}</style>
+          <div className="lobby-bg">
+            {/* Particles */}
+            <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+              {Array.from({length: 20}).map((_, i) => (
+                <div key={i} style={{ position: 'absolute', width: `${1.5+(i%3)*0.7}px`, height: `${1.5+(i%3)*0.7}px`, background: i%2===0 ? 'rgba(250,204,21,0.4)' : 'rgba(255,255,255,0.15)', borderRadius: '50%', left: `${(i*41+7)%100}%`, top: `${(i*57+13)%100}%`, animation: `titleFloat ${5+(i%5)}s ease-in-out ${i*0.3}s infinite alternate` }}/>
+              ))}
+            </div>
+
+            <div className="lobby-card anim-cinematic" style={{ position: 'relative', zIndex: 10, borderTop: '4px solid #facc15' }}>
+              <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+                <h2 style={{ margin: '0 0 6px 0', fontSize: '1.8rem', fontWeight: '900' }}>🌐 غرفة أون لاين</h2>
+                <div style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: '700' }}>شارك الرمز أو الرابط مع صديقك</div>
+              </div>
+
+              {/* Room Code */}
+              <div style={{ textAlign: 'center', background: 'rgba(250,204,21,0.06)', border: '2px dashed rgba(250,204,21,0.3)', borderRadius: '20px', padding: '24px', marginBottom: '24px' }}>
+                <div style={{ fontSize: '0.75rem', color: '#64748b', letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '12px' }}>رمز الغرفة</div>
+                <div style={{ fontSize: '3rem', fontWeight: '900', color: '#facc15', letterSpacing: '6px', fontFamily: 'monospace', textShadow: '0 0 30px rgba(250,204,21,0.5)' }}>
+                  {pvpRoomId.replace('huroof-pvp-', '')}
+                </div>
+              </div>
+
+              {/* QR Code */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', marginBottom: '24px' }}>
+                <div style={{ background: '#fff', padding: '16px', borderRadius: '18px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', animation: 'onlinePulse 2s infinite' }}>
+                  <QRCode value={pvpUrl} size={180} />
+                </div>
+                <div style={{ fontSize: '0.8rem', color: pvpGuestConnected ? '#10b981' : '#64748b', fontWeight: '800', letterSpacing: '2px', textTransform: 'uppercase' }}>
+                  {pvpGuestConnected ? '✅ صديقك متصل!' : '⏳ في انتظار صديقك...'}
+                </div>
+              </div>
+
+              {/* Copy Link */}
+              <div className="pvp-copy-link" onClick={() => { navigator.clipboard.writeText(pvpUrl); AudioEngine.play('win'); }} title="انقر للنسخ">
+                <span style={{ fontSize: '1.2rem' }}>📋</span>
+                <span style={{ color: '#e2e8f0', fontSize: '0.82rem', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'left' }}>{pvpUrl}</span>
+                <span style={{ color: '#facc15', fontSize: '0.8rem', fontWeight: '900', flexShrink: 0 }}>نسخ</span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '14px', marginTop: '24px' }}>
+                <button className="pulse-btn" onClick={() => { AudioEngine.play('click'); setOnlineSubScreen('choose'); setPvpRoomId(''); setOnlineRole(null); setGameMode('local'); }} style={{ flex: 1 }}>← رجوع</button>
+                <button className="launch-btn" style={{ flex: 2, padding: '18px', fontSize: '1.2rem' }} onClick={() => { AudioEngine.play('win'); setShowLobby(false); }}>
+                  {pvpGuestConnected ? '🎮 ابدأ اللعبة!' : '🚀 ابدأ بدون انتظار'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // شاشة الانضمام لغرفة
+    if (onlineSubScreen === 'join') {
+      return (
+        <>
+          <style>{globalStyles}</style>
+          <div style={{ minHeight: '100vh', background: 'radial-gradient(ellipse at top, #11111a 0%, #050508 80%)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '30px 20px', fontFamily: 'Cairo, sans-serif', color: 'white' }}>
+            <div style={{ background: 'rgba(10,10,20,0.9)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '28px', padding: '40px', maxWidth: '480px', width: '100%', boxShadow: '0 40px 80px rgba(0,0,0,0.6)', backdropFilter: 'blur(30px)', borderTop: '4px solid #3b82f6', textAlign: 'center' }} className="anim-cinematic">
+              <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔗</div>
+              <h2 style={{ margin: '0 0 8px 0', fontSize: '1.8rem', fontWeight: '900' }}>انضم لغرفة</h2>
+              <p style={{ color: '#475569', margin: '0 0 28px 0', fontWeight: '600' }}>أدخل رمز الغرفة أو الرابط</p>
+              <input
+                className="pro-input"
+                placeholder="أدخل رمز الغرفة..."
+                value={pvpJoinInput}
+                onChange={e => setPvpJoinInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && pvpJoinInput.trim()) { const code = pvpJoinInput.trim(); window.location.href = `${window.location.origin}${window.location.pathname}?pvp=${code}`; }}}
+                style={{ textAlign: 'center', fontSize: '1.4rem', letterSpacing: '4px', marginBottom: '16px', direction: 'ltr' }}
+              />
+              <button className="launch-btn" style={{ fontSize: '1.2rem', padding: '18px', marginBottom: '12px' }}
+                onClick={() => { if (pvpJoinInput.trim()) { const code = pvpJoinInput.trim(); window.location.href = `${window.location.origin}${window.location.pathname}?pvp=${code}`; }}}>
+                🚀 انضم الآن
+              </button>
+              <button className="pulse-btn" style={{ width: '100%' }} onClick={() => { AudioEngine.play('click'); setOnlineSubScreen('choose'); }}>← رجوع</button>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ====== شاشة اللوبي الرئيسية (الاختيار بين محلي وأون لاين) ======
+    return (
+      <>
+        <style>{globalStyles}</style>
+        <style>{`
+          .lobby-root { min-height: 100vh; background: radial-gradient(ellipse at 60% 20%, #0d0d1a 0%, #050508 70%); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; font-family: 'Cairo', sans-serif; color: white; position: relative; overflow: hidden; }
+          .mode-card { background: rgba(10,10,20,0.85); border: 1px solid rgba(255,255,255,0.07); border-radius: 28px; padding: 40px 36px; cursor: pointer; transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275); display: flex; flex-direction: column; align-items: center; gap: 18px; flex: 1; min-width: 220px; max-width: 360px; backdrop-filter: blur(20px); position: relative; overflow: hidden; }
+          .mode-card::before { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s; border-radius: 28px; }
+          .mode-card:hover { transform: translateY(-10px) scale(1.03); border-color: rgba(255,255,255,0.2); box-shadow: 0 40px 80px rgba(0,0,0,0.5); }
+          .mode-card-local:hover { border-color: rgba(255,255,255,0.3); box-shadow: 0 30px 60px rgba(255,255,255,0.08); }
+          .mode-card-online:hover { border-color: rgba(250,204,21,0.5); box-shadow: 0 30px 60px rgba(250,204,21,0.15); }
+          .mode-card-online { border-top: 4px solid #facc15; }
+          .mode-card-local { border-top: 4px solid rgba(255,255,255,0.5); }
+          .mode-icon { font-size: 3.5rem; line-height: 1; filter: drop-shadow(0 0 20px rgba(255,255,255,0.3)); }
+          .mode-title { font-size: 1.6rem; font-weight: 900; color: #fff; }
+          .mode-desc { font-size: 0.95rem; color: #64748b; text-align: center; font-weight: 600; line-height: 1.6; }
+          .mode-badge { font-size: 0.7rem; font-weight: 900; letter-spacing: 2px; padding: 4px 14px; border-radius: 30px; text-transform: uppercase; }
+          @keyframes scanLine { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+          .scan-beam { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(250,204,21,0.3), transparent); animation: scanLine 6s linear infinite; pointer-events: none; z-index: 0; }
+          .online-sub-btn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; padding: 22px 30px; cursor: pointer; transition: all 0.25s; display: flex; align-items: center; gap: 16px; font-family: 'Cairo', sans-serif; color: white; width: 100%; text-align: right; }
+          .online-sub-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); transform: translateX(-4px); }
+        `}</style>
+
+        <div className="lobby-root">
+          <div className="scan-beam"/>
+          {/* Particles */}
+          <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+            {Array.from({length: 28}).map((_, i) => (
+              <div key={i} style={{ position: 'absolute', width: `${1.5+(i%4)*0.8}px`, height: `${1.5+(i%4)*0.8}px`, background: i%4===0?'rgba(250,204,21,0.5)':i%4===1?'rgba(255,255,255,0.18)':'rgba(96,165,250,0.2)', borderRadius: '50%', left: `${(i*37+5)%100}%`, top: `${(i*53+10)%100}%`, animation: `titleFloat ${5+(i%6)}s ease-in-out ${i*0.25}s infinite alternate`, boxShadow: i%4===0?'0 0 8px rgba(250,204,21,0.6)':'none' }}/>
+            ))}
+          </div>
+
+          {/* Watermark */}
+          <div style={{ position: 'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', fontSize: '15vw', fontWeight: '900', color: 'rgba(255,255,255,0.015)', whiteSpace:'nowrap', userSelect:'none', pointerEvents:'none', lineHeight:1 }}>
+            حروف ZONE
+          </div>
+
+          <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '40px', maxWidth: '860px', width: '100%' }} className="anim-cinematic">
+
+            {/* Logo */}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', position: 'relative' }}>
+                <h1 className="logo-title" style={{ fontSize: 'clamp(2.5rem, 8vw, 5.5rem)', fontWeight: '900', margin: '0', color: '#fff', letterSpacing: '-1px', lineHeight: 1 }}>
+                  حروف <span style={{color: 'transparent', WebkitTextStroke: '2px rgba(255,255,255,0.4)', letterSpacing: '4px'}}>ZONE</span>
+                </h1>
+                <div style={{ position: 'absolute', top: '-8px', left: '-5px', background: 'linear-gradient(135deg, #facc15, #f59e0b)', color: '#000', fontSize: '0.6rem', fontWeight: '900', padding: '3px 8px', borderRadius: '6px', letterSpacing: '2px', transform: 'rotate(-12deg)', boxShadow: '0 4px 15px rgba(250,204,21,0.5)' }}>PRO</div>
+              </div>
+              <p style={{ fontSize: '0.9rem', color: '#334155', margin: '12px 0 0 0', fontWeight: '700', letterSpacing: '5px', textTransform: 'uppercase' }}>اختر طريقة اللعب</p>
+              <div style={{ width: '60px', height: '2px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)', margin: '14px auto 0', borderRadius: '2px' }}/>
+            </div>
+
+            {/* Mode Cards */}
+            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+
+              {/* Local Mode */}
+              <div className="mode-card mode-card-local" onClick={() => { AudioEngine.play('win'); setGameMode('local'); setShowLobby(false); }}>
+                <div className="mode-icon">📺</div>
+                <div>
+                  <div className="mode-title">محلي</div>
+                  <div className="mode-desc">العب على نفس الجهاز<br/>مع أصدقائك في نفس المكان</div>
+                </div>
+                <div className="mode-badge" style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}>LOCAL PLAY</div>
+              </div>
+
+              {/* Online Mode */}
+              <div className="mode-card mode-card-online" onClick={() => { AudioEngine.play('win'); setGameMode('online'); }}>
+                <div style={{ position: 'absolute', top: '16px', left: '16px' }}>
+                  <div style={{ background: 'rgba(250,204,21,0.15)', color: '#facc15', fontSize: '0.65rem', fontWeight: '900', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(250,204,21,0.3)', letterSpacing: '1px' }}>⚡ جديد</div>
+                </div>
+                <div className="mode-icon" style={{ filter: 'drop-shadow(0 0 20px rgba(250,204,21,0.5))' }}>🌐</div>
+                <div>
+                  <div className="mode-title" style={{ color: '#facc15' }}>أون لاين</div>
+                  <div className="mode-desc">العب مع صديقك عن بعد<br/>من أي مكان في العالم</div>
+                </div>
+                <div className="mode-badge" style={{ background: 'rgba(250,204,21,0.12)', color: '#facc15', border: '1px solid rgba(250,204,21,0.3)' }}>ONLINE VERSUS</div>
+              </div>
+            </div>
+
+            {/* Online sub-options (shown when online is selected) */}
+            {gameMode === 'online' && (
+              <div style={{ background: 'rgba(10,10,20,0.9)', border: '1px solid rgba(250,204,21,0.2)', borderRadius: '24px', padding: '28px', width: '100%', maxWidth: '580px', display: 'flex', flexDirection: 'column', gap: '14px', backdropFilter: 'blur(20px)' }} className="anim-slide-up">
+                <div style={{ textAlign: 'center', marginBottom: '6px' }}>
+                  <div style={{ color: '#facc15', fontWeight: '900', fontSize: '1.1rem' }}>🌐 اختر دورك</div>
+                </div>
+
+                {/* Create Room */}
+                <div className="online-sub-btn" onClick={() => {
+                  AudioEngine.play('click');
+                  const roomId = 'huroof-pvp-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+                  setPvpRoomId(roomId);
+                  setOnlineRole('host');
+                  setOnlineSubScreen('host_wait');
+                }} style={{ borderColor: 'rgba(250,204,21,0.25)', background: 'rgba(250,204,21,0.05)' }}>
+                  <div style={{ fontSize: '2rem' }}>🏠</div>
+                  <div>
+                    <div style={{ fontWeight: '900', fontSize: '1.1rem', color: '#facc15' }}>أنشئ غرفة</div>
+                    <div style={{ color: '#475569', fontSize: '0.85rem', fontWeight: '600' }}>الفريق الأول — أنت تتحكم في اللوحة</div>
+                  </div>
+                  <div style={{ marginRight: 'auto', fontSize: '1.3rem', color: '#facc15' }}>←</div>
+                </div>
+
+                {/* Join Room */}
+                <div className="online-sub-btn" onClick={() => { AudioEngine.play('click'); setOnlineSubScreen('join'); }} style={{ borderColor: 'rgba(59,130,246,0.25)', background: 'rgba(59,130,246,0.05)' }}>
+                  <div style={{ fontSize: '2rem' }}>🙋</div>
+                  <div>
+                    <div style={{ fontWeight: '900', fontSize: '1.1rem', color: '#93c5fd' }}>انضم لغرفة</div>
+                    <div style={{ color: '#475569', fontSize: '0.85rem', fontWeight: '600' }}>الفريق الثاني — أدخل رمز صديقك</div>
+                  </div>
+                  <div style={{ marginRight: 'auto', fontSize: '1.3rem', color: '#60a5fa' }}>←</div>
+                </div>
+
+                <button className="pulse-btn" style={{ alignSelf: 'center', marginTop: '4px' }} onClick={() => { AudioEngine.play('click'); setGameMode('local'); }}>← إلغاء</button>
+              </div>
+            )}
+          </div>
+
+          {/* Support Button */}
+          <button onClick={() => AudioEngine.play('click')} style={{ position: 'fixed', bottom: '20px', left: '20px', background: 'linear-gradient(135deg, #4F008C, #8900E1)', color: '#fff', padding: '10px 20px', borderRadius: '30px', fontWeight: '900', fontSize: '1rem', border: 'none', cursor: 'pointer', zIndex: 100, fontFamily: 'inherit' }}>
+            ☕ ادعمني
+          </button>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -1559,18 +1955,40 @@ function App() {
                                 
                                 {/* عرض السؤال في جميع الأنماط */}
                                 {currentQuestion && (
-                                    <div style={{ 
-                                        fontSize: isMobile ? '1.3rem' : '3rem', 
-                                        color: '#fff', 
-                                        margin: isMobile ? '20px 0' : '0 0 50px 0', 
-                                        lineHeight: '1.5', 
-                                        fontWeight: '900', 
-                                        textAlign: 'center', 
-                                        textShadow: '0 10px 40px rgba(255,255,255,0.15)',
-                                        width: '90%'
-                                    }}>
-                                        {currentQuestion}
-                                    </div>
+                                    isQuestionHidden ? (
+                                        /* السؤال مخفي — عرض إشارة للجمهور */
+                                        <div style={{
+                                            margin: isMobile ? '20px 0' : '0 0 50px 0',
+                                            textAlign: 'center', width: '90%',
+                                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px'
+                                        }}>
+                                            <div style={{
+                                                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                                                borderRadius: '20px', padding: '30px 50px', backdropFilter: 'blur(10px)'
+                                            }}>
+                                                <div style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.5 }}>🙈</div>
+                                                <div style={{ fontSize: isMobile ? '1.6rem' : '3rem', letterSpacing: '12px', color: 'rgba(255,255,255,0.2)', fontWeight: '900', filter: 'blur(4px)', userSelect: 'none' }}>
+                                                    {'█'.repeat(Math.min(currentQuestion.length, 18))}
+                                                </div>
+                                                <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '14px', letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '700' }}>
+                                                    السؤال مخفي — في انتظار المُقدم
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{
+                                            fontSize: isMobile ? '1.3rem' : '3rem',
+                                            color: '#fff',
+                                            margin: isMobile ? '20px 0' : '0 0 50px 0',
+                                            lineHeight: '1.5',
+                                            fontWeight: '900',
+                                            textAlign: 'center',
+                                            textShadow: '0 10px 40px rgba(255,255,255,0.15)',
+                                            width: '90%'
+                                        }}>
+                                            {currentQuestion}
+                                        </div>
+                                    )
                                 )}
                                 
                                 {/* إدارة صندوق الإجابات (مخفي للجمهور إلا لو أراد المقدم كشفها) */}
@@ -1621,7 +2039,31 @@ function App() {
                                     </div>
                                 )}
                                 
-                                {hostMode === 'smart' ? (
+                                {isOnlineGuest ? (
+                                  /* أزرار الضيف أون لاين — فريق 2 فقط */
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', alignItems: 'center', padding: '20px 0' }}>
+                                    <div style={{ color: team2Color, fontWeight: '900', fontSize: '1rem', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>
+                                      🌐 فريقك: {team2Name || 'الفريق الثاني'}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '16px', width: '100%', maxWidth: '600px' }}>
+                                      <button className="control-btn" onClick={() => { AudioEngine.play('correct'); sendGuestAction({ type: 'ONLINE_CORRECT' }); }}
+                                        style={{ background: team2Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team2Color}55`, fontSize: '1.3rem' }}>
+                                        ✔️ إجابة صحيحة
+                                      </button>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '16px', width: '100%', maxWidth: '600px' }}>
+                                      <button className="control-btn" onClick={() => { AudioEngine.play('wrong'); sendGuestAction({ type: 'ONLINE_WRONG' }); }}
+                                        style={{ background: 'transparent', color: '#ef4444', border: '2px solid rgba(239,68,68,0.5)', flex: 1 }}>
+                                        ❌ إجابة خاطئة
+                                      </button>
+                                      <button className="control-btn" onClick={() => { AudioEngine.play('click'); sendGuestAction({ type: 'ONLINE_SKIP' }); }}
+                                        style={{ background: 'transparent', color: 'var(--text-secondary)', border: '2px solid rgba(255,255,255,0.15)', flex: 1 }}>
+                                        ⏭️ تخطي
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : hostMode === 'smart' ? (
+
                                 <>
                                 <div className="command-center" style={{
                                     display: 'flex',
