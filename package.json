@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "canvas-confetti": "^1.9.4",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.7.0",
     "mqtt": "^5.15.1",
     "peerjs": "^1.5.5",
     "react": "^19.0.0",
