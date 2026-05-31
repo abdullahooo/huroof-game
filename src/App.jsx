@@ -141,13 +141,17 @@ const AdSenseWidget = ({ adSlot }) => {
     );
 };
 
-function App() {
+function App({ onBack = () => {} }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Dynamic hex cell sizing via ResizeObserver
+  const hexWrapRef = useRef(null);
+  const [cellPx, setCellPx] = useState(60);
 
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [gridSize, setGridSize] = useState(6); 
@@ -761,7 +765,27 @@ function App() {
     };
   }, [isGameStarted]);
 
-  const nextRound = () => { 
+  // Hex grid responsive sizing
+  useEffect(() => {
+    if (!isGameStarted) return;
+    const el = hexWrapRef.current;
+    if (!el) return;
+    const calc = () => {
+      const W = el.clientWidth  - 24;
+      const H = el.clientHeight - 24;
+      if (W <= 0 || H <= 0) return;
+      const fromW = W / (gridSize + 0.5);
+      const fromH = (H / (gridSize * 0.75 + 0.25)) / 1.1547;
+      const sz = Math.max(24, Math.min(110, Math.floor(Math.min(fromW, fromH))));
+      setCellPx(sz);
+    };
+    const t = setTimeout(calc, 30);
+    const ro = new ResizeObserver(calc);
+    ro.observe(el);
+    return () => { clearTimeout(t); ro.disconnect(); };
+  }, [gridSize, isGameStarted, isMobile]);
+
+  const nextRound = () => {
       AudioEngine.play('click'); setShowConfetti(false);
       setCells(Array(gridSize * gridSize).fill(0)); 
       setTeam1Score(0); setTeam2Score(0); setRoundWinner(null); setCurrentRound(r => r + 1); 
@@ -806,239 +830,270 @@ function App() {
   const t2ControlPercent = totalCellsCount === 0 ? 0 : Math.round((t2CellsCount / totalCellsCount) * 100);
 
   const globalStyles = `
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
-    
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     :root {
-        --bg-deep: #050508;
-        --panel-bg: rgba(18, 18, 24, 0.65);
-        --text-primary: #ffffff;
-        --text-secondary: #94a3b8;
+      --bg:        #07001a;
+      --surface:   rgba(14, 3, 36, 0.96);
+      --border:    rgba(124, 58, 237, 0.18);
+      --border-hi: rgba(124, 58, 237, 0.5);
+      --purple:    #7c3aed;
+      --purple-lt: #a855f7;
+      --gold:      #f59e0b;
+      --gold-lt:   #fbbf24;
+      --text:      #f1f5f9;
+      --muted:     rgba(255,255,255,0.35);
+      --t1:        ${team1Color};
+      --t2:        ${team2Color};
     }
 
-    body, html { 
-        margin: 0;
-        padding: 0; width: 100%; height: 100%; 
-        background-color: var(--bg-deep); 
-        color: var(--text-primary);
-        font-family: 'Cairo', sans-serif; 
-        direction: rtl; 
-        overflow-x: hidden;
+    body, html {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Cairo', sans-serif;
+      direction: rtl;
+      overflow-x: hidden;
     }
 
-    ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: var(--bg-deep); }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
-    
-    .main-layout { display: flex; width: 100vw; height: 100dvh; overflow: hidden; background: var(--bg-deep); }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.4); border-radius: 3px; }
 
-    .ad-sidebar {
-        width: 180px; background: rgba(10, 10, 15, 0.8);
-        border-left: 1px solid rgba(255,255,255,0.05); border-right: 1px solid rgba(255,255,255,0.05);
-        display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; z-index: 50;
-        box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
-    }
-    .ad-placeholder {
-        width: 160px;
-        height: 600px; border: 2px dashed rgba(255,255,255,0.15); border-radius: 12px; display: flex; justify-content: center; align-items: center;
-        color: rgba(255,255,255,0.3); font-weight: 800; font-size: 1.1rem;
-        text-align: center; background: rgba(255,255,255,0.02); box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-    }
-
+    /* ── Layout ── */
+    .main-layout { display: flex; width: 100vw; height: 100dvh; overflow: hidden; background: var(--bg); }
+    .ad-sidebar { display: none !important; }
     .game-area { flex: 1; position: relative; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
-    
-    .app-container { 
-        flex: 1;
-        background: radial-gradient(ellipse at top, #11111a 0%, var(--bg-deep) 80%);
-        display: flex; flex-direction: column; position: relative; z-index: 1;
+
+    /* ── App container with ambient blobs ── */
+    .app-container {
+      flex: 1;
+      background: radial-gradient(ellipse at 20% 0%, rgba(124,58,237,0.15) 0%, transparent 60%),
+                  radial-gradient(ellipse at 80% 100%, rgba(99,102,241,0.1) 0%, transparent 60%),
+                  var(--bg);
+      display: flex; flex-direction: column; position: relative; z-index: 1;
+    }
+    .app-container::before {
+      content: ''; position: fixed; top: -20%; right: -20%;
+      width: 55vw; height: 55vw; border-radius: 50%;
+      filter: blur(120px); z-index: -1; opacity: 0.15;
+      background: var(--t1);
+      animation: blobDrift 25s ease-in-out infinite alternate;
+    }
+    .app-container::after {
+      content: ''; position: fixed; bottom: -20%; left: -20%;
+      width: 55vw; height: 55vw; border-radius: 50%;
+      filter: blur(120px); z-index: -1; opacity: 0.12;
+      background: var(--t2);
+      animation: blobDrift 30s ease-in-out -15s infinite alternate;
     }
 
-    .app-container::before, .app-container::after {
-        content: ''; position: fixed; width: 60vw;
-        height: 60vw; border-radius: 50%; filter: blur(140px); z-index: -1; opacity: 0.12; animation: drift 30s infinite alternate ease-in-out;
-    }
-    .app-container::before { top: -20%; right: -20%; background: ${team1Color}; }
-    .app-container::after { bottom: -20%; left: -20%; background: ${team2Color}; animation-delay: -15s; }
-    
-    @keyframes drift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(8%, 8%) scale(1.15); } }
-    
+    /* ── Panels ── */
     .glass-panel {
-        background: rgba(10, 10, 20, 0.95) !important;
-        border-radius: 24px !important;
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 20px !important;
+      backdrop-filter: blur(40px);
+    }
+    .esport-panel {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: clamp(20px,3vw,32px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+      transition: transform 0.35s cubic-bezier(0.175,0.885,0.32,1.275), box-shadow 0.35s, border-color 0.3s;
+    }
+    .esport-panel:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-hi);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,58,237,0.2), inset 0 1px 0 rgba(255,255,255,0.06);
     }
 
     .panel-title {
-        font-size: 1.3rem;
-        font-weight: 900;
-        color: var(--text-primary);
-        margin: 0 0 20px 0;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+      font-size: 1.1rem; font-weight: 900; color: var(--text);
+      margin: 0 0 20px 0;
+      display: flex; align-items: center; gap: 10px;
+      text-transform: uppercase; letter-spacing: 1px;
     }
 
-    .hero-btn {
-        background: linear-gradient(135deg, #facc15, #eab308);
-        color: #000;
-        border: none;
-        border-radius: 16px;
-        font-size: 1.5rem;
-        font-weight: 900;
-        cursor: pointer;
-        box-shadow: 0 10px 30px rgba(250, 204, 21, 0.3);
-        transition: all 0.3s ease;
-        font-family: inherit;
-    }
-    .hero-btn:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 15px 40px rgba(250, 204, 21, 0.5);
-    }
-
-    .esport-panel { 
-        position: relative;
-        background: rgba(18, 18, 25, 0.4);
-        backdrop-filter: blur(40px) saturate(150%);
-        -webkit-backdrop-filter: blur(40px) saturate(150%);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 20px; padding: 35px;
-        box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.8), inset 0 2px 2px rgba(255, 255, 255, 0.04);
-        z-index: 1;
-        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease;
-    }
-    .esport-panel:hover { 
-        transform: translateY(-5px); 
-        box-shadow: 0 50px 90px -20px rgba(0, 0, 0, 0.9), inset 0 2px 5px rgba(255, 255, 255, 0.1);
-        border-top: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
+    /* ── Inputs ── */
     .pro-input {
-        width: 100%; padding: 18px 24px; border-radius: 14px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.06);
-        color: white; font-family: inherit; font-size: 1.1rem; font-weight: 700;
-        outline: none; transition: all 0.3s ease; box-sizing: border-box;
+      width: 100%; padding: 16px 20px; border-radius: 12px;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.07);
+      color: var(--text); font-family: inherit; font-size: 1rem; font-weight: 700;
+      outline: none; transition: border-color 0.3s, box-shadow 0.3s; box-sizing: border-box;
     }
-    .pro-input:focus { border-color: #fff; background: rgba(0,0,0,0.8); box-shadow: 0 0 25px rgba(255,255,255,0.08); }
+    .pro-input:focus { border-color: var(--purple-lt); box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
 
-    .color-picker { width: 100%; height: 50px; border: none; border-radius: 14px; cursor: pointer; padding: 0; background: transparent; }
+    .color-picker { width: 100%; height: 48px; border: none; border-radius: 12px; cursor: pointer; padding: 0; background: transparent; }
     .color-picker::-webkit-color-swatch-wrapper { padding: 0; }
-    .color-picker::-webkit-color-swatch { border: 2px solid rgba(255,255,255,0.15); border-radius: 14px; }
+    .color-picker::-webkit-color-swatch { border: 2px solid rgba(255,255,255,0.12); border-radius: 12px; }
 
-    .pulse-btn { 
-        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-        color: var(--text-secondary); padding: 14px 28px; border-radius: 12px; 
-        cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); font-family: inherit; font-weight: 800; font-size: 1rem;
+    /* ── Buttons ── */
+    .pulse-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--muted);
+      padding: 12px 24px; border-radius: 12px;
+      cursor: pointer; font-family: inherit; font-weight: 800; font-size: 0.95rem;
+      transition: all 0.2s ease;
     }
-    .pulse-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; transform: translateY(-2px); }
-    .pulse-btn.active { background: #fff; color: #000; border-color: #fff; box-shadow: 0 8px 25px rgba(255,255,255,0.3); }
+    .pulse-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: var(--text); transform: translateY(-2px); border-color: rgba(255,255,255,0.15); }
+    .pulse-btn.active { background: var(--purple); color: #fff; border-color: var(--purple); box-shadow: 0 6px 20px rgba(124,58,237,0.45); }
     .pulse-btn:disabled { opacity: 0.2; cursor: not-allowed; }
 
-    .btn-easy.active { background: #10b981; color: #000; border-color: #10b981; box-shadow: 0 5px 20px rgba(16, 185, 129, 0.4); }
-    .btn-medium.active { background: #facc15; color: #000; border-color: #facc15; box-shadow: 0 5px 20px rgba(250, 204, 21, 0.4); }
-    .btn-hard.active { background: #ef4444; color: #fff; border-color: #ef4444; box-shadow: 0 5px 20px rgba(239, 68, 68, 0.4); }
+    .btn-easy.active   { background: #22c55e; border-color: #22c55e; color: #000; box-shadow: 0 5px 18px rgba(34,197,94,0.4); }
+    .btn-medium.active { background: #f59e0b; border-color: #f59e0b; color: #000; box-shadow: 0 5px 18px rgba(245,158,11,0.4); }
+    .btn-hard.active   { background: #ef4444; border-color: #ef4444; color: #fff; box-shadow: 0 5px 18px rgba(239,68,68,0.4); }
 
     .launch-btn {
-        width: 100%; padding: 25px;
-        background: linear-gradient(90deg, #ffffff, #e0e0e0); color: #000; border: none; border-radius: 16px; font-size: 1.6rem; font-weight: 900; 
-        cursor: pointer; font-family: inherit;
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 15px 40px rgba(255,255,255,0.2); text-transform: uppercase; letter-spacing: 1px;
+      width: 100%; padding: 22px;
+      background: linear-gradient(135deg, var(--purple), #4f46e5);
+      color: #fff; border: none; border-radius: 16px;
+      font-size: 1.4rem; font-weight: 900; cursor: pointer; font-family: inherit;
+      transition: all 0.3s cubic-bezier(0.175,0.885,0.32,1.275);
+      box-shadow: 0 15px 40px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.12);
+      letter-spacing: 0.5px;
     }
-    .launch-btn:hover { transform: translateY(-5px); box-shadow: 0 25px 50px rgba(255,255,255,0.35); }
-    
+    .launch-btn:hover { transform: translateY(-4px); box-shadow: 0 25px 55px rgba(124,58,237,0.65), inset 0 1px 0 rgba(255,255,255,0.15); }
+
     .control-btn {
-        padding: 20px 35px; border-radius: 16px; font-family: inherit; font-weight: 900; font-size: 1.2rem; cursor: pointer; transition: all 0.2s ease; border: none; display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 18px 30px; border-radius: 14px; font-family: inherit; font-weight: 900;
+      font-size: 1.1rem; cursor: pointer; transition: all 0.2s ease; border: none;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
     }
-    .control-btn:hover { transform: translateY(-3px); filter: brightness(1.2); box-shadow: 0 12px 25px rgba(0,0,0,0.4); }
+    .control-btn:hover { transform: translateY(-3px); filter: brightness(1.15); box-shadow: 0 12px 30px rgba(0,0,0,0.4); }
 
-    .hex-container { position: relative; padding: 40px; margin: auto; }
-    .hex-cell { transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor: pointer; }
-    .hex-cell:hover { transform: scale(1.18) !important; z-index: 100; filter: brightness(1.3); }
-    
-    .progress-bg { background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; width: 100%; overflow: hidden; margin-top: 15px;}
-    .progress-fill { height: 100%; transition: width 1s linear, background-color 0.3s; }
+    /* ── Hex grid ── */
+    .hex-container { position: relative; padding: clamp(20px,4vw,50px); margin: auto; }
+    .hex-cell { transition: all 0.35s cubic-bezier(0.175,0.885,0.32,1.275); cursor: pointer; }
+    .hex-cell:hover { transform: scale(1.2) translateY(-5px) !important; z-index: 100; filter: brightness(1.4) saturate(1.2); }
+    .hex-cell-owned { animation: hexOwned 0.45s cubic-bezier(0.175,0.885,0.32,1.275); }
 
+    /* ── Scoreboard HUD ── */
+    .score-hud {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px; padding: 14px 22px;
+      backdrop-filter: blur(30px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }
+
+    /* ── Live stats bar ── */
+    .live-stats {
+      position: sticky; bottom: 16px; left: 50%; transform: translateX(-50%);
+      width: 92%; max-width: 1300px;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 20px; z-index: 9000;
+      background: rgba(7,0,26,0.92);
+      border: 1px solid var(--border);
+      border-radius: 16px; padding: 12px 24px;
+      backdrop-filter: blur(40px);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+
+    /* ── Command center ── */
     .command-center {
-        display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 30px; width: 100%; margin-bottom: 50px; background: rgba(0,0,0,0.5); padding: 30px; border-radius: 28px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 5px 20px rgba(0,0,0,0.5);
+      width: 100%; background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 22px; padding: clamp(16px,3vw,28px);
+      display: flex; align-items: center; gap: 24px;
+      box-shadow: inset 0 4px 20px rgba(0,0,0,0.4);
     }
-    
-    @media (max-width: 1200px) { .ad-sidebar { display: none !important; } }
-    @media (max-width: 1024px) { 
-        .app-container { padding: 15px !important; } 
-        h1 { font-size: 2.5rem !important; } 
-        .esport-panel { padding: 20px !important; }
-        .command-center { grid-template-columns: 1fr !important; gap: 15px !important; padding: 20px !important; }
-        .command-center > div { justify-content: center !important; text-align: center !important; width: 100% !important; }
-        .hex-container { padding: 20px !important; transform: scale(0.95); margin-top: 20px; }
-        .live-stats { flex-direction: column !important; gap: 15px !important; margin-bottom: 20px; }
-    }
-    @media (max-width: 768px) {
-        h1 { font-size: 2rem !important; }
-        .esport-panel { width: 100% !important; min-width: unset !important; padding: 20px !important; box-sizing: border-box; }
-        .panel-title { font-size: 1.1rem !important; justify-content: center; text-align: center; }
-        .pulse-btn { padding: 12px !important; font-size: 0.95rem !important; flex: 1 1 100% !important; justify-content: center; }
-        .pro-input { padding: 14px 20px !important; font-size: 1rem !important; }
-        .launch-btn { font-size: 1.2rem !important; padding: 20px !important; }
-        .settings-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
-        .settings-flex { flex-direction: column !important; width: 100%; }
-        .grid-options { display: grid !important; grid-template-columns: repeat(2, 1fr) !important; width: 100%; gap: 10px !important; }
-        .grid-options .pulse-btn { flex: unset !important; }
-        div[style*="font-size: 4.5rem"] { font-size: 2.5rem !important; }
-        div[style*="font-size: 1.6rem"] { font-size: 1.2rem !important; }
-        .team-inputs { flex-direction: column !important; gap: 12px; }
-        .color-picker { width: 100% !important; height: 50px !important; }
-        .hex-container { padding: 10px !important; transform: scale(0.9); '--hex-w': 'clamp(25px, calc(min(80vw, 40vh) / ${gridSize}), 80px)' !important; }
-        .command-center { grid-template-columns: 1fr !important; text-align: center; gap: 20px !important; padding: 15px !important; }
-        .command-center > div { justify-content: center !important; text-align: center !important; }
-        .live-stats { flex-direction: column !important; gap: 20px !important; position: relative !important; bottom: 0 !important; margin-top: 20px;}
-        .live-stats .actions { order: 2; width: 100%; justify-content: space-between; }
-        .live-stats .bars { order: 1; width: 100%; margin: 10px 0 !important; }
-        .live-stats .remaining { order: 3; }
-    }
-    @media (min-width: 1920px) { .hex-container { padding: 60px; } .app-container { padding: 5vh 5vw; } }
 
-    @keyframes cinematicFade { from { opacity: 0; transform: translateY(30px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    @keyframes cyberGlitch { 0% { clip-path: inset(10% 0 80% 0); transform: translate(-2px, 2px); } 20% { clip-path: inset(80% 0 10% 0); transform: translate(2px, -2px); } 40% { clip-path: inset(40% 0 40% 0); transform: translate(2px, 2px); } 60% { clip-path: inset(20% 0 60% 0); transform: translate(-2px, -2px); } 80% { clip-path: inset(60% 0 20% 0); transform: translate(2px, -2px); } 100% { clip-path: inset(0 0 0 0); transform: translate(0); } }
-    @keyframes pulseGold { 0% { filter: drop-shadow(0 0 10px rgba(234,179,8,0.4)); } 100% { filter: drop-shadow(0 0 25px rgba(234,179,8,0.8)); transform: scale(1.05); } }
-    @keyframes pulseVirus { 0% { filter: drop-shadow(0 0 10px rgba(168,85,247,0.4)); } 100% { filter: drop-shadow(0 0 25px rgba(168,85,247,0.8)); transform: scale(1.05); } }
-    @keyframes screenShake { 0%, 100% { transform: translate(0,0) rotate(0deg); } 25% { transform: translate(-10px, 10px) rotate(-2deg); } 50% { transform: translate(10px, -10px) rotate(2deg); } 75% { transform: translate(-10px, -10px) rotate(-2deg); } }
-    @keyframes alertPulse { 0%, 100% { color: #ef4444; transform: scale(1); text-shadow: 0 0 20px rgba(239,68,68,0.5); } 50% { color: #fff; transform: scale(1.1); text-shadow: 0 0 40px rgba(239,68,68,1); } }
-    @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-    
-    
-    .anim-cinematic { animation: cinematicFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-    .anim-glitch { animation: cyberGlitch 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
-    .anim-pop-in { animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-    .anim-slide-up { animation: slideUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-    @keyframes popIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+    /* ── Animations ── */
+    @keyframes blobDrift  { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(5%,5%) scale(1.1); } }
+    @keyframes cinematicFade { from { opacity:0; transform:translateY(28px) scale(0.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @keyframes slideUp    { from { opacity:0; transform:translateY(22px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes popIn      { from { opacity:0; transform:scale(0.88); } to { opacity:1; transform:scale(1); } }
+    @keyframes hexOwned   { 0% { transform:scale(1.4); filter:brightness(2.5); } 100% { transform:scale(1); filter:brightness(1); } }
+    @keyframes alertPulse { 0%,100% { color:#ef4444; transform:scale(1); text-shadow:0 0 20px rgba(239,68,68,0.5); } 50% { color:#fff; transform:scale(1.08); text-shadow:0 0 40px rgba(239,68,68,1); } }
+    @keyframes timerRingPulse { 0%,100% { filter:drop-shadow(0 0 8px currentColor); } 50% { filter:drop-shadow(0 0 28px currentColor) drop-shadow(0 0 55px currentColor); } }
+    @keyframes screenShake { 0%,100%{transform:translate(0,0)} 20%{transform:translate(-8px,8px)} 40%{transform:translate(8px,-8px)} 60%{transform:translate(-6px,-6px)} 80%{transform:translate(6px,6px)} }
+    @keyframes logoGlow   { 0%,100%{text-shadow:0 0 30px rgba(124,58,237,0.5),0 0 60px rgba(124,58,237,0.2)} 50%{text-shadow:0 0 60px rgba(124,58,237,1),0 0 120px rgba(124,58,237,0.4)} }
+    @keyframes titleFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+    @keyframes remotePulse{ 0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0.4)} 50%{box-shadow:0 0 0 14px rgba(245,158,11,0)} }
+    @keyframes scanBorder { 0%{background-position:0% 50%} 100%{background-position:200% 50%} }
+    @keyframes confettiFall { 0%{transform:translateY(-10vh) rotate(0deg);opacity:0.9} 100%{transform:translateY(110vh) rotate(720deg);opacity:0} }
+    @keyframes onlinePulse{ 0%,100%{box-shadow:0 0 0 0 rgba(124,58,237,0.4)} 50%{box-shadow:0 0 0 18px rgba(124,58,237,0)} }
+    @keyframes marqueeRtl { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
 
-    .confetti { position: absolute; width: 12px; height: 12px; background-color: #f00; animation: fall 4s linear forwards; opacity: 0.9; border-radius: 2px; box-shadow: 0 0 10px currentColor; pointer-events: none;}
-    @keyframes fall { 0% { transform: translateY(-10vh) rotate(0deg); } 100% { transform: translateY(110vh) rotate(720deg); } }
+    .anim-cinematic  { animation: cinematicFade 0.75s cubic-bezier(0.16,1,0.3,1) forwards; }
+    .anim-glitch     { animation: popIn 0.35s cubic-bezier(0.175,0.885,0.32,1.275) forwards; }
+    .anim-pop-in     { animation: popIn 0.45s cubic-bezier(0.175,0.885,0.32,1.275) forwards; }
+    .anim-slide-up   { animation: slideUp 0.45s cubic-bezier(0.175,0.885,0.32,1.275) forwards; }
 
-    @keyframes logoGlow { 0%, 100% { text-shadow: 0 0 30px rgba(255,255,255,0.3), 0 0 60px rgba(255,255,255,0.1); } 50% { text-shadow: 0 0 60px rgba(255,255,255,0.7), 0 0 120px rgba(255,255,255,0.3); } }
-    @keyframes titleFloat { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
-    @keyframes borderScan { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
-    @keyframes timerRingPulse { 0%, 100% { filter: drop-shadow(0 0 8px currentColor); } 50% { filter: drop-shadow(0 0 25px currentColor) drop-shadow(0 0 50px currentColor); } }
-    @keyframes remotePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.4); } 50% { box-shadow: 0 0 0 15px rgba(250, 204, 21, 0); } }
-    @keyframes hexOwned { 0% { transform: scale(1.35); filter: brightness(2); } 100% { transform: scale(1); filter: brightness(1); } }
-    @keyframes neonFlicker { 0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; } 20%, 24%, 55% { opacity: 0.4; } }
-    
-    .hex-cell:hover { transform: scale(1.18) translateY(-4px) !important; z-index: 100; filter: brightness(1.4) saturate(1.3); }
-    .hex-cell-owned { animation: hexOwned 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-    .timer-ring-critical { animation: timerRingPulse 0.7s ease-in-out infinite; color: #ef4444; }
+    .timer-ring-critical { animation: timerRingPulse 0.65s ease-in-out infinite; color: #ef4444; }
+    .logo-title  { animation: logoGlow 3s ease-in-out infinite, titleFloat 4s ease-in-out infinite; display: inline-block; }
     .remote-header { animation: remotePulse 2s infinite; }
-    .logo-title { animation: logoGlow 3s ease-in-out infinite, titleFloat 4s ease-in-out infinite; display: inline-block; }
-    .scan-line { position: relative; overflow: hidden; }
-    .scan-line::after { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: borderScan 3s linear infinite; }
+    .scan-line { position:relative; overflow:hidden; }
+    .scan-line::after { content:''; position:absolute; top:0; left:-100%; width:60%; height:100%; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent); animation:scanBorder 3s linear infinite; }
+    .confetti { position:absolute; width:10px; height:10px; animation:confettiFall 3.5s linear forwards; opacity:0.9; border-radius:2px; box-shadow:0 0 8px currentColor; pointer-events:none; }
 
-    @keyframes marqueeRtl { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-    .letter-ticker-wrap { width: 100%; overflow: hidden; position: relative; padding: 10px 0; }
-    .letter-ticker-wrap::before, .letter-ticker-wrap::after { content: ''; position: absolute; top: 0; bottom: 0; width: 80px; z-index: 2; pointer-events: none; }
-    .letter-ticker-wrap::before { left: 0; background: linear-gradient(to right, var(--bg-deep), transparent); }
-    .letter-ticker-wrap::after { right: 0; background: linear-gradient(to left, var(--bg-deep), transparent); }
-    .letter-ticker-inner { display: flex; gap: 0; white-space: nowrap; animation: marqueeRtl 22s linear infinite; width: max-content; }
-    .letter-ticker-inner span { font-size: 1.1rem; font-weight: 900; padding: 0 18px; color: rgba(255,255,255,0.08); letter-spacing: 2px; transition: color 0.3s; font-family: 'Cairo', sans-serif; }
-    .letter-ticker-inner span:hover { color: rgba(255,255,255,0.35); }
+    .letter-ticker-wrap { width:100%; overflow:hidden; position:relative; padding:10px 0; }
+    .letter-ticker-wrap::before, .letter-ticker-wrap::after { content:''; position:absolute; top:0; bottom:0; width:60px; z-index:2; pointer-events:none; }
+    .letter-ticker-wrap::before { left:0; background:linear-gradient(to right, var(--bg), transparent); }
+    .letter-ticker-wrap::after  { right:0; background:linear-gradient(to left, var(--bg), transparent); }
+    .letter-ticker-inner { display:flex; gap:0; white-space:nowrap; animation:marqueeRtl 22s linear infinite; width:max-content; }
+    .letter-ticker-inner span { font-size:1rem; font-weight:900; padding:0 16px; color:rgba(255,255,255,0.07); letter-spacing:2px; transition:color 0.3s; }
+    .letter-ticker-inner span:hover { color:rgba(124,58,237,0.5); }
+
+    /* ── Lobby styles ── */
+    .lobby-bg {
+      min-height:100vh; display:flex; flex-direction:column; align-items:center;
+      padding:clamp(30px,5vw,60px) clamp(16px,4vw,50px) 80px;
+      position:relative;
+    }
+    .lobby-card {
+      background: var(--surface); border:1px solid var(--border); border-radius:24px;
+      padding:clamp(24px,4vw,44px); max-width:680px; width:100%;
+      box-shadow:0 40px 100px rgba(0,0,0,0.6); backdrop-filter:blur(40px);
+    }
+    .mode-card {
+      background: var(--surface); border:1px solid var(--border); border-radius:20px;
+      padding:clamp(24px,3vw,36px); cursor:pointer;
+      transition:all 0.35s cubic-bezier(0.175,0.885,0.32,1.275);
+      display:flex; flex-direction:column; align-items:center; gap:16px;
+      flex:1; min-width:200px; max-width:320px; text-align:center;
+      position:relative; overflow:hidden;
+    }
+    .mode-card:hover { transform:translateY(-10px) scale(1.03); border-color:var(--border-hi); box-shadow:0 35px 70px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.25); }
+    .mode-card-local  { border-top:3px solid rgba(255,255,255,0.3); }
+    .mode-card-online { border-top:3px solid var(--gold); }
+    .online-sub-btn {
+      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+      border-radius:16px; padding:20px 24px; cursor:pointer;
+      transition:all 0.25s; display:flex; align-items:center; gap:16px;
+      font-family:'Cairo',sans-serif; color:var(--text); width:100%; text-align:right;
+    }
+    .online-sub-btn:hover { background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.18); transform:translateX(-4px); }
+
+    /* ── Responsive ── */
+    @media(max-width:1024px) {
+      .app-container { padding:12px !important; }
+      .esport-panel { padding:18px !important; }
+      .command-center { flex-direction:column !important; gap:14px !important; }
+      .hex-container { padding:16px !important; }
+      .live-stats { flex-direction:column !important; gap:14px !important; }
+    }
+    @media(max-width:768px) {
+      .esport-panel { width:100% !important; min-width:unset !important; }
+      .pulse-btn { padding:10px !important; font-size:0.9rem !important; }
+      .launch-btn { font-size:1.2rem !important; padding:18px !important; }
+      .settings-grid { grid-template-columns:1fr !important; }
+      .settings-flex { flex-direction:column !important; width:100%; }
+      .grid-options { display:grid !important; grid-template-columns:repeat(2,1fr) !important; gap:8px !important; }
+      .team-inputs { flex-direction:column !important; gap:10px; }
+      .hex-container { padding:8px !important; }
+      .live-stats { position:relative !important; bottom:0 !important; margin-top:16px; }
+      .command-center { flex-direction:column !important; gap:14px !important; }
+    }
   `;
 
   // ====== Remote Client State for Human Host Mode ======
@@ -1535,9 +1590,9 @@ function App() {
             )}
           </div>
 
-          {/* Support Button */}
-          <button onClick={() => AudioEngine.play('click')} style={{ position: 'fixed', bottom: '20px', left: '20px', background: 'linear-gradient(135deg, #4F008C, #8900E1)', color: '#fff', padding: '10px 20px', borderRadius: '30px', fontWeight: '900', fontSize: '1rem', border: 'none', cursor: 'pointer', zIndex: 100, fontFamily: 'inherit' }}>
-            ☕ ادعمني
+          {/* Back to Platform */}
+          <button onClick={() => { AudioEngine.play('click'); onBack(); }} style={{ position: 'fixed', bottom: '20px', left: '20px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '10px 20px', borderRadius: '30px', fontWeight: '900', fontSize: '0.95rem', cursor: 'pointer', zIndex: 100, fontFamily: 'inherit', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            🏠 المنصة الرئيسية
           </button>
         </div>
       </>
@@ -1553,15 +1608,6 @@ function App() {
         </div>
 
         <div className="game-area">
-            {isGameStarted && (
-                <button 
-                    onClick={() => setIsAmbientOn(AudioEngine.toggleAmbient())}
-                    style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: isAmbientOn ? '#3b82f6' : '#a1a1aa', borderRadius:'50%', width:'45px', height:'45px', cursor: 'pointer', fontSize: '1.2rem', zIndex: 50, transition: '0.3s', backdropFilter:'blur(10px)' }}
-                    title="تفعيل الموسيقى المحيطية"
-                >
-                    {isAmbientOn ? '🔊' : '🔈'}
-                </button>
-            )}
 
             {isGameStarted && hostMode === 'human' && (
                 <div style={{
@@ -1868,97 +1914,102 @@ function App() {
                     </div>
                 </div>
             ) : (
-                <div className="app-container" style={{ padding: '3vh 3vw', animation: explodedMine ? 'screenShake 0.5s ease-in-out' : 'none' }}>
-                    
-                    {/* Header HUD - E-Sports Style */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '20px', maxWidth: '1800px', margin: '0 auto 20px auto', width: '100%', zIndex: 10 }}>
-                        
-                        {/* Team 1 Scoreboard */}
-                        <div className="esport-panel scan-line" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '18px 30px', minWidth: isMobile ? 'auto' : '300px', borderRight: `4px solid ${team1Color}`, position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: '80px' }}>
-                                <div style={{ fontSize: isMobile ? '3rem' : '4.5rem', fontWeight: '900', color: team1Color, lineHeight: '1', textShadow: `0 0 40px ${team1Color}, 0 0 80px ${team1Color}44` }}>{team1Score}</div>
-                                <div style={{ fontSize: '0.65rem', color: team1Color, letterSpacing: '2px', opacity: 0.7, textTransform: 'uppercase', marginTop: '2px' }}>نقطة</div>
+                <div className="app-container" style={{
+                  height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                  animation: explodedMine ? 'screenShake 0.5s ease-in-out' : 'none'
+                }}>
+
+                    {/* ── Header Scoreboard ── */}
+                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(7,0,26,0.95)', borderBottom: '1px solid rgba(124,58,237,0.15)', zIndex: 20 }}>
+
+                        {/* Team 1 */}
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, background: team1Color + '12', border: `1px solid ${team1Color}40`, borderRadius: 12, padding: '8px 14px', minWidth: 0 }}>
+                            <div style={{ flexShrink: 0 }}>
+                                <div style={{ fontSize: 'clamp(1.6rem,4vw,2.8rem)', fontWeight: 900, color: team1Color, lineHeight: 1, textShadow: `0 0 20px ${team1Color}` }}>{team1Score}</div>
+                                <div style={{ fontSize: '0.55rem', color: team1Color, opacity: 0.6, letterSpacing: '1.5px', textTransform: 'uppercase' }}>نقطة</div>
                             </div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: isMobile ? '1.1rem' : '1.5rem', fontWeight: '900', color: '#fff', textTransform: 'uppercase', letterSpacing: '1px' }}>{team1Name || 'الفريق الأول'}</div>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: '700', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 'clamp(0.8rem,2.5vw,1.1rem)', fontWeight: 900, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team1Name || 'الفريق الأول'}</div>
+                                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                                     {Array.from({ length: Math.max(maxRounds === 999 ? 1 : maxRounds, 1) }).map((_, i) => (
-                                        <div key={i} style={{ width: '10px', height: '10px', borderRadius: '50%', background: i < team1Wins ? team1Color : 'rgba(255,255,255,0.1)', boxShadow: i < team1Wins ? `0 0 8px ${team1Color}` : 'none', transition: 'all 0.3s' }} />
+                                        <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: i < team1Wins ? team1Color : 'rgba(255,255,255,0.1)', boxShadow: i < team1Wins ? `0 0 6px ${team1Color}` : 'none', transition: '0.3s' }} />
                                     ))}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Status Center */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px 45px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(20px)', boxShadow: '0 15px 35px rgba(0,0,0,0.4)' }}>
-                            <span style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fff', letterSpacing: '2px' }}>
-                                الجولة {maxRounds === 999 ? currentRound : `${currentRound} من ${maxRounds}`}
-                            </span>
+                        {/* Center — Round info */}
+                        <div style={{ flexShrink: 0, textAlign: 'center', padding: '0 8px' }}>
+                            <div style={{ fontSize: 'clamp(0.75rem,2vw,0.95rem)', fontWeight: 900, color: 'rgba(255,255,255,0.5)', letterSpacing: '1px' }}>
+                                الجولة {maxRounds === 999 ? currentRound : `${currentRound}/${maxRounds}`}
                             </div>
-                            {victoryCondition === 'domination' && <div style={{color: '#facc15', fontSize: '1rem', fontWeight: '800', background: 'rgba(250, 204, 21, 0.1)', padding: '6px 20px', borderRadius: '12px', border: '1px solid rgba(250, 204, 21, 0.2)', textTransform: 'uppercase'}}>نمط الهيمنة الميدانية</div>}
+                            {victoryCondition === 'domination' && (
+                                <div style={{ fontSize: '0.6rem', color: '#fbbf24', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', marginTop: 2 }}>هيمنة</div>
+                            )}
                         </div>
 
-                        {/* Team 2 Scoreboard */}
-                        <div className="esport-panel scan-line" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '18px 30px', minWidth: isMobile ? 'auto' : '300px', flexDirection: 'row-reverse', borderLeft: `4px solid ${team2Color}`, position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: '80px' }}>
-                                <div style={{ fontSize: isMobile ? '3rem' : '4.5rem', fontWeight: '900', color: team2Color, lineHeight: '1', textShadow: `0 0 40px ${team2Color}, 0 0 80px ${team2Color}44` }}>{team2Score}</div>
-                                <div style={{ fontSize: '0.65rem', color: team2Color, letterSpacing: '2px', opacity: 0.7, textTransform: 'uppercase', marginTop: '2px' }}>نقطة</div>
+                        {/* Team 2 */}
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, flexDirection: 'row-reverse', background: team2Color + '12', border: `1px solid ${team2Color}40`, borderRadius: 12, padding: '8px 14px', minWidth: 0 }}>
+                            <div style={{ flexShrink: 0, textAlign: 'left' }}>
+                                <div style={{ fontSize: 'clamp(1.6rem,4vw,2.8rem)', fontWeight: 900, color: team2Color, lineHeight: 1, textShadow: `0 0 20px ${team2Color}` }}>{team2Score}</div>
+                                <div style={{ fontSize: '0.55rem', color: team2Color, opacity: 0.6, letterSpacing: '1.5px', textTransform: 'uppercase' }}>نقطة</div>
                             </div>
-                            <div style={{ flex: 1, textAlign: 'left' }}>
-                                <div style={{ fontSize: isMobile ? '1.1rem' : '1.5rem', fontWeight: '900', color: '#fff', textTransform: 'uppercase', letterSpacing: '1px' }}>{team2Name || 'الفريق الثاني'}</div>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: '700', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
+                            <div style={{ minWidth: 0, textAlign: 'right' }}>
+                                <div style={{ fontSize: 'clamp(0.8rem,2.5vw,1.1rem)', fontWeight: 900, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team2Name || 'الفريق الثاني'}</div>
+                                <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
                                     {Array.from({ length: Math.max(maxRounds === 999 ? 1 : maxRounds, 1) }).map((_, i) => (
-                                        <div key={i} style={{ width: '10px', height: '10px', borderRadius: '50%', background: i < team2Wins ? team2Color : 'rgba(255,255,255,0.1)', boxShadow: i < team2Wins ? `0 0 8px ${team2Color}` : 'none', transition: 'all 0.3s' }} />
+                                        <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: i < team2Wins ? team2Color : 'rgba(255,255,255,0.1)', boxShadow: i < team2Wins ? `0 0 6px ${team2Color}` : 'none', transition: '0.3s' }} />
                                     ))}
                                 </div>
                             </div>
                         </div>
-
                     </div>
 
-                    {/* Main Grid Area */}
-                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, position: 'relative', zIndex: 10, paddingBottom: isMobile ? '10px' : '40px' }}>
-                        <div className="hex-container" style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center',
-                        '--hex-w': `clamp(25px, min(calc(96vw / ${gridSize + 0.5}), calc(60dvh / ${gridSize})), 120px)`, 
-                        '--hex-h': 'calc(var(--hex-w) * 1.1547)', 
-                        '--hex-gap': 'calc(var(--hex-w) * 0.08)', 
-                        '--hex-border': '3px', 
-                        '--hex-offset': 'calc((var(--hex-w) + var(--hex-gap)) / 2)'
-                        }}>
-                        
-                        {/* الإطارات المضيئة (Target Lines) */}
-                        <div style={{position: 'absolute', top: '-30px', left: '10%', right: '10%', height: '8px', background: team1Color, borderRadius: '10px', boxShadow: `0 0 30px ${team1Color}, 0 0 60px ${team1Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
-                        <div style={{position: 'absolute', bottom: '-30px', left: '10%', right: '10%', height: '8px', background: team1Color, borderRadius: '10px', boxShadow: `0 0 30px ${team1Color}, 0 0 60px ${team1Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
-                        <div style={{position: 'absolute', left: '-30px', top: '10%', bottom: '10%', width: '8px', background: team2Color, borderRadius: '10px', boxShadow: `0 0 30px ${team2Color}, 0 0 60px ${team2Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
-                        <div style={{position: 'absolute', right: '-30px', top: '10%', bottom: '10%', width: '8px', background: team2Color, borderRadius: '10px', boxShadow: `0 0 30px ${team2Color}, 0 0 60px ${team2Color}`, opacity: victoryCondition === 'path' ? 0.9 : 0.15}}></div>
+                    {/* Main Grid Area — fills remaining space, ResizeObserver calculates cellPx */}
+                    <div ref={hexWrapRef} style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', zIndex: 10, overflow: 'hidden', minHeight: 0, padding: '8px' }}>
+                        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
 
-                        {gridRows.map((row, rowIndex) => (
-                            <div key={rowIndex} style={{ display: 'flex', gap: 'var(--hex-gap)', marginTop: rowIndex > 0 ? 'calc(var(--hex-h) * -0.25)' : '0', transform: `translateX(${rowIndex % 2 === 0 ? 'calc(var(--hex-offset) * -0.5)' : 'calc(var(--hex-offset) * 0.5)'})` }}>
+                        {/* Target line indicators */}
+                        {victoryCondition === 'path' && (<>
+                          <div style={{position:'absolute',top:-10,left:'5%',right:'5%',height:4,background:team1Color,borderRadius:4,boxShadow:`0 0 16px ${team1Color}`,opacity:0.85}}/>
+                          <div style={{position:'absolute',bottom:-10,left:'5%',right:'5%',height:4,background:team1Color,borderRadius:4,boxShadow:`0 0 16px ${team1Color}`,opacity:0.85}}/>
+                          <div style={{position:'absolute',left:-10,top:'5%',bottom:'5%',width:4,background:team2Color,borderRadius:4,boxShadow:`0 0 16px ${team2Color}`,opacity:0.85}}/>
+                          <div style={{position:'absolute',right:-10,top:'5%',bottom:'5%',width:4,background:team2Color,borderRadius:4,boxShadow:`0 0 16px ${team2Color}`,opacity:0.85}}/>
+                        </>)}
+
+                        {gridRows.map((row, rowIndex) => {
+                          const gap = Math.max(2, Math.round(cellPx * 0.06));
+                          const hexH = Math.round(cellPx * 1.1547);
+                          const offset = (cellPx + gap) / 2;
+                          const marginTop = rowIndex > 0 ? -(hexH * 0.25) : 0;
+                          const translateX = rowIndex % 2 === 0 ? -offset / 2 : offset / 2;
+                          return (
+                            <div key={rowIndex} style={{ display: 'flex', gap, marginTop, transform: `translateX(${translateX}px)` }}>
                             {row.map((cellIndex) => {
                                 const style = getHexStyle(cells[cellIndex], cellIndex);
                                 const isBomb = cells[cellIndex] === 3;
-                                const displayLetter = (modes.blind && cells[cellIndex] === 0) ? '' : (isBomb ? <Bomb size="50%" color="#ff0000" strokeWidth={2.5} style={{filter: 'drop-shadow(0 0 10px red)'}} /> : letters[cellIndex]);
+                                const displayLetter = (modes.blind && cells[cellIndex] === 0) ? '' : (isBomb ? <Bomb size={cellPx * 0.4} color="#ff0000" strokeWidth={2.5} style={{filter:'drop-shadow(0 0 8px red)'}} /> : letters[cellIndex]);
+                                const border = Math.max(2, Math.round(cellPx * 0.04));
                                 return (
                                 <motion.div key={cellIndex} className="hex-cell" onClick={() => handleCellClick(cellIndex)} onMouseEnter={() => AudioEngine.play('hover')}
-                                    initial={{ opacity: 0, scale: 0.2, rotate: -20 }}
-                                    animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                                    transition={{ duration: 0.4, type: 'spring', bounce: 0.4, delay: (Math.floor(cellIndex / gridSize) + (cellIndex % gridSize)) * 0.04 }}
-                                    style={{ 
-                                        width: 'var(--hex-w)', height: 'var(--hex-h)', 
-                                        background: style.border, 
-                                        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)', 
+                                    initial={{ opacity: 0, scale: 0.3 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ duration: 0.35, type: 'spring', bounce: 0.35, delay: (Math.floor(cellIndex / gridSize) + (cellIndex % gridSize)) * 0.03 }}
+                                    style={{
+                                        width: cellPx, height: hexH,
+                                        background: style.border,
+                                        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
                                         display: 'flex', justifyContent: 'center', alignItems: 'center',
-                                        boxShadow: style.shadow, zIndex: style.zIndex
+                                        boxShadow: style.shadow, zIndex: style.zIndex, flexShrink: 0
                                     }}>
-                                    <div style={{ 
-                                        width: 'calc(100% - var(--hex-border) * 2)', height: 'calc(100% - var(--hex-border) * 2)', 
-                                        background: style.bg, 
-                                        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)', 
-                                        display: 'flex', justifyContent: 'center', alignItems: 'center', 
-                                        fontSize: 'calc(var(--hex-w) * 0.45)', color: style.color, 
-                                        fontWeight: '900', userSelect: 'none', textShadow: '0 4px 10px rgba(0,0,0,0.8)'
+                                    <div style={{
+                                        width: cellPx - border * 2, height: hexH - border * 2,
+                                        background: style.bg,
+                                        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+                                        display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        fontSize: cellPx * 0.42, color: style.color,
+                                        fontWeight: '900', userSelect: 'none', textShadow: '0 2px 8px rgba(0,0,0,0.9)',
+                                        lineHeight: 1
                                     }}>
                                     {displayLetter}
                                     </div>
@@ -1966,285 +2017,154 @@ function App() {
                                 );
                             })}
                             </div>
-                        ))}
+                          );
+                        })}
                         </div>
                     </div>
 
-                    {/* Live Stats Bar - Upgraded */}
-                    <div className="esport-panel live-stats" style={{ position: 'sticky', bottom: '20px', left: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '1400px', padding: isMobile ? '12px 16px' : '16px 35px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 9000, borderRadius: '20px', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(30px)' }}>
-                        <div className="actions" style={{ display: 'flex', gap: '12px' }}>
-                            <button onClick={() => {AudioEngine.play('click'); setCells(Array(gridSize*gridSize).fill(0)); setTeam1Score(0); setTeam2Score(0);}} className="pulse-btn" style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)', fontSize: isMobile ? '0.8rem' : '1rem' }}>تصفير</button>
-                            <button onClick={resetFullGame} className="pulse-btn" style={{ fontSize: isMobile ? '0.8rem' : '1rem' }}>العودة</button>
+                    {/* ── Footer Controls Bar ── */}
+                    <div style={{ flexShrink: 0, padding: '8px 12px 10px', background: 'rgba(7,0,26,0.95)', borderTop: '1px solid rgba(124,58,237,0.15)', display: 'flex', alignItems: 'center', gap: 10, zIndex: 9000 }}>
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                            <button onClick={() => { AudioEngine.play('click'); setCells(Array(gridSize*gridSize).fill(0)); setTeam1Score(0); setTeam2Score(0); }} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', padding: '8px 14px', borderRadius: 10, fontFamily: 'inherit', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer', transition: '0.2s', whiteSpace: 'nowrap' }}>تصفير</button>
+                            <button onClick={resetFullGame} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', padding: '8px 14px', borderRadius: 10, fontFamily: 'inherit', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer', transition: '0.2s', whiteSpace: 'nowrap' }}>العودة</button>
                         </div>
-                        
-                        <div className="bars" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, maxWidth: '500px', margin: '0 20px' }}>
-                            <div style={{ color: team1Color, fontWeight: '900', fontSize: '1.2rem', minWidth: '40px', textAlign: 'center', textShadow: `0 0 10px ${team1Color}` }}>{t1ControlPercent}%</div>
-                            <div style={{ flex: 1, height: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', overflow: 'hidden', display: 'flex', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>
-                                <div style={{ width: `${t1ControlPercent}%`, background: `linear-gradient(90deg, ${team1Color}cc, ${team1Color})`, transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)', boxShadow: `0 0 12px ${team1Color}, inset 0 1px 0 rgba(255,255,255,0.3)` }}></div>
-                                <div style={{ width: `${t2ControlPercent}%`, background: `linear-gradient(90deg, ${team2Color}, ${team2Color}cc)`, transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)', marginLeft: 'auto', boxShadow: `0 0 12px ${team2Color}, inset 0 1px 0 rgba(255,255,255,0.3)` }}></div>
+
+                        {/* Control bar */}
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                            <span style={{ color: team1Color, fontWeight: 900, fontSize: '0.85rem', flexShrink: 0 }}>{t1ControlPercent}%</span>
+                            <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden', display: 'flex', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
+                                <div style={{ width: `${t1ControlPercent}%`, background: team1Color, transition: 'width 0.6s ease', boxShadow: `0 0 8px ${team1Color}` }} />
+                                <div style={{ width: `${t2ControlPercent}%`, background: team2Color, transition: 'width 0.6s ease', marginLeft: 'auto', boxShadow: `0 0 8px ${team2Color}` }} />
                             </div>
-                            <div style={{ color: team2Color, fontWeight: '900', fontSize: '1.2rem', minWidth: '40px', textAlign: 'center', textShadow: `0 0 10px ${team2Color}` }}>{t2ControlPercent}%</div>
+                            <span style={{ color: team2Color, fontWeight: 900, fontSize: '0.85rem', flexShrink: 0 }}>{t2ControlPercent}%</span>
                         </div>
-                        
-                        <div className="remaining" style={{ color: 'var(--text-secondary)', fontWeight: '800', fontSize: '1rem', background: 'rgba(0,0,0,0.4)', padding: '8px 16px', borderRadius: '10px', textAlign: 'center', minWidth: '70px' }}>
-                            <div style={{ color: '#fff', fontSize: '1.5rem', fontWeight: '900', lineHeight: 1 }}>{emptyCellsCount}</div>
-                            <div style={{ fontSize: '0.65rem', letterSpacing: '1px', textTransform: 'uppercase' }}>خلية متبقية</div>
+
+                        {/* Remaining */}
+                        <div style={{ flexShrink: 0, background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.2)', borderRadius: 10, padding: '6px 12px', textAlign: 'center', minWidth: 56 }}>
+                            <div style={{ color: '#c084fc', fontSize: '1.2rem', fontWeight: 900, lineHeight: 1 }}>{emptyCellsCount}</div>
+                            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.58rem', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 700 }}>متبقية</div>
                         </div>
                     </div>
 
-                    {/* The Command Center (Question Modal) */}
-                    {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (
-                        <div style={{ 
-                            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
-                            background: 'rgba(2, 2, 4, 0.98)', backdropFilter: 'blur(20px)', 
-                            display: isMobile ? 'block' : 'flex', 
-                            justifyContent: 'center', alignItems: 'center', 
-                            zIndex: 9999, 
-                            overflowY: 'auto', 
-                            padding: isMobile ? '40px 10px 120px 10px' : '0' 
-                        }}>
-                            
-                            <div className="glass-panel anim-glitch" style={{ 
-                                width: '95%', 
-                                maxWidth: '1100px', 
-                                padding: isMobile ? '20px 10px' : '50px', 
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', 
-                                border: '1px solid rgba(255,255,255,0.08)', 
-                                boxShadow: '0 40px 100px rgba(0,0,0,0.8)',
-                                margin: isMobile ? '0 auto' : '0' 
-                            }}>
-                                
-                                {/* Silence Banner */}
-                                {silencedTeam !== null && (
-                                    <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#ef4444', padding: '10px 30px', borderRadius: '100px', fontSize: '1.2rem', fontWeight: '900', zIndex: 100, boxShadow: '0 0 20px rgba(239,68,68,0.5)', animation: 'alertPulse 1s infinite' }}>
-                                        🤫 تم تسكيت {silencedTeam === 1 ? team1Name || 'الفريق الأول' : team2Name || 'الفريق الثاني'} ({silencedTimer}ث)
-                                    </div>
-                                )}
+                    {/* Question Modal — compact & fully responsive */}
+                    {activeCell !== null && !roundWinner && !matchWinner && !explodedMine && (() => {
+                        const _crit = timeLeft <= 10;
+                        const _r = 42, _circ = 2 * Math.PI * _r;
+                        const _clr = _crit ? '#ef4444' : '#7c3aed';
+                        const _pct = timeLeft / timerDuration;
+                        return (
+                        <div style={{ position:'fixed', inset:0, background:'rgba(4,0,16,0.97)', backdropFilter:'blur(24px)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:10, overflowY:'auto' }}>
+                            <div style={{ background:'rgba(10,2,28,0.99)', border:'1px solid rgba(124,58,237,0.32)', borderRadius:18, width:'100%', maxWidth:600, padding:'clamp(14px,4vw,24px)', display:'flex', flexDirection:'column', gap:11, boxShadow:'0 0 70px rgba(124,58,237,0.2),0 25px 70px rgba(0,0,0,0.9)', animation:'popIn 0.32s cubic-bezier(0.175,0.885,0.32,1.275)', maxHeight:'94dvh', overflowY:'auto' }}>
 
-                                <div style={{ display: 'flex', gap: '20px', marginBottom: '40px', marginTop: silencedTeam ? '40px' : '0', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
-                                    <div className="anim-glitch" style={{ position: 'relative', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', padding: isMobile ? '12px 30px' : '18px 60px', borderRadius: '20px', fontSize: isMobile ? '1.8rem' : '3rem', fontWeight: '900', boxShadow: '0 0 40px rgba(255,255,255,0.15), inset 0 0 30px rgba(255,255,255,0.05)', letterSpacing: '4px', backdropFilter: 'blur(10px)', textShadow: '0 0 20px rgba(255,255,255,0.9)' }}>
-                                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.5em', position: 'absolute', top: '8px', right: '50%', transform: 'translateX(50%)', letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '700' }}>حـرف</span>
+                                {/* Row 1: Letter + badges + timer */}
+                                <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                                    <div style={{ background:'rgba(124,58,237,0.16)', border:'1px solid rgba(124,58,237,0.42)', borderRadius:11, padding:'8px 16px', fontSize:'clamp(1.4rem,5vw,2.2rem)', fontWeight:900, color:'#c084fc', letterSpacing:3, textShadow:'0 0 18px rgba(124,58,237,0.8)', flexShrink:0 }}>
                                         {letters[activeCell]}
                                     </div>
-                                    {goldenCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.1))', color: '#fef08a', border: '1px solid rgba(234, 179, 8, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(234,179,8,0.3)', backdropFilter: 'blur(5px)' }}>✨ ذهبيــة مـضاعفة ✨</div>}
-                                    {virusCells.includes(activeCell) && <div className="anim-pop-in" style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(147, 51, 234, 0.1))', color: '#e9d5ff', border: '1px solid rgba(168, 85, 247, 0.6)', padding: '15px 30px', borderRadius: '20px', fontSize: '1.5rem', fontWeight: '900', display:'flex', alignItems:'center', boxShadow: '0 0 30px rgba(168,85,247,0.3)', backdropFilter: 'blur(5px)' }}>🦠 فـيروس الانتـشـار 🦠</div>}
-                                </div>
-                                
-                                {/* عرض السؤال في جميع الأنماط */}
-                                {currentQuestion && (
-                                    isQuestionHidden ? (
-                                        /* السؤال مخفي — عرض إشارة للجمهور */
-                                        <div style={{
-                                            margin: isMobile ? '20px 0' : '0 0 50px 0',
-                                            textAlign: 'center', width: '90%',
-                                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px'
-                                        }}>
-                                            <div style={{
-                                                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                                                borderRadius: '20px', padding: '30px 50px', backdropFilter: 'blur(10px)'
-                                            }}>
-                                                <div style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.5 }}>🙈</div>
-                                                <div style={{ fontSize: isMobile ? '1.6rem' : '3rem', letterSpacing: '12px', color: 'rgba(255,255,255,0.2)', fontWeight: '900', filter: 'blur(4px)', userSelect: 'none' }}>
-                                                    {'█'.repeat(Math.min(currentQuestion.length, 18))}
-                                                </div>
-                                                <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '14px', letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '700' }}>
-                                                    السؤال مخفي — في انتظار المُقدم
-                                                </div>
+                                    {goldenCells.includes(activeCell) && <span style={{ background:'rgba(234,179,8,0.14)', border:'1px solid rgba(234,179,8,0.48)', color:'#fef08a', padding:'4px 11px', borderRadius:18, fontSize:'0.78rem', fontWeight:900 }}>✨ ذهبية ×2</span>}
+                                    {virusCells.includes(activeCell) && <span style={{ background:'rgba(168,85,247,0.14)', border:'1px solid rgba(168,85,247,0.48)', color:'#e9d5ff', padding:'4px 11px', borderRadius:18, fontSize:'0.78rem', fontWeight:900 }}>🦠 فيروس</span>}
+                                    {silencedTeam !== null && <span style={{ background:'rgba(239,68,68,0.14)', border:'1px solid #ef4444', color:'#f87171', padding:'4px 11px', borderRadius:18, fontSize:'0.75rem', fontWeight:900, animation:'alertPulse 1s infinite' }}>🤫 تسكيت {silencedTimer}ث</span>}
+                                    {/* Timer ring */}
+                                    <div style={{ marginRight:'auto', cursor:'pointer', flexShrink:0 }} onClick={() => { AudioEngine.play('click'); setIsTimerRunning(p => !p); }} className={_crit ? 'timer-ring-critical' : ''}>
+                                        <div style={{ position:'relative', display:'inline-flex', alignItems:'center', justifyContent:'center' }}>
+                                            <svg width={84} height={84} style={{ transform:'rotate(-90deg)' }}>
+                                                <circle cx={42} cy={42} r={_r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={5}/>
+                                                <circle cx={42} cy={42} r={_r} fill="none" stroke={_clr} strokeWidth={5}
+                                                    strokeDasharray={_circ.toFixed(1)}
+                                                    strokeDashoffset={(_circ*(1-_pct)).toFixed(1)}
+                                                    strokeLinecap="round"
+                                                    style={{ transition:'stroke-dashoffset 1s linear,stroke 0.4s', filter:'drop-shadow(0 0 7px '+_clr+')' }}/>
+                                            </svg>
+                                            <div style={{ position:'absolute', textAlign:'center' }}>
+                                                <div style={{ fontSize:'1.15rem', fontWeight:900, fontFamily:'monospace', color:_clr, lineHeight:1 }}>{String(timeLeft).padStart(2,'0')}</div>
+                                                <div style={{ fontSize:'0.45rem', color:'rgba(255,255,255,0.28)', letterSpacing:'1px', textTransform:'uppercase' }}>{isTimerRunning?'إيقاف':'تشغيل'}</div>
                                             </div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Question text */}
+                                {currentQuestion && (
+                                    isQuestionHidden ? (
+                                        <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:11, padding:'13px 16px', textAlign:'center' }}>
+                                            <div style={{ fontSize:'1.5rem', letterSpacing:7, color:'rgba(255,255,255,0.1)', filter:'blur(3px)', userSelect:'none' }}>{'█'.repeat(Math.min(currentQuestion.length,22))}</div>
+                                            <div style={{ fontSize:'0.64rem', color:'rgba(255,255,255,0.2)', marginTop:7, letterSpacing:'2px', textTransform:'uppercase' }}>السؤال مخفي</div>
+                                        </div>
                                     ) : (
-                                        <div style={{
-                                            fontSize: isMobile ? '1.3rem' : '3rem',
-                                            color: '#fff',
-                                            margin: isMobile ? '20px 0' : '0 0 50px 0',
-                                            lineHeight: '1.5',
-                                            fontWeight: '900',
-                                            textAlign: 'center',
-                                            textShadow: '0 10px 40px rgba(255,255,255,0.15)',
-                                            width: '90%'
-                                        }}>
+                                        <div style={{ fontSize:'clamp(1rem,3vw,1.55rem)', color:'#f1f5f9', lineHeight:1.58, fontWeight:800, textAlign:'center' }}>
                                             {currentQuestion}
                                         </div>
                                     )
                                 )}
-                                
-                                {/* إدارة صندوق الإجابات (مخفي للجمهور إلا لو أراد المقدم كشفها) */}
-                                {currentAnswer && (
-                                <div style={{ marginBottom: hostMode === 'human' ? '10px' : '50px', minHeight: hostMode === 'human' ? '0' : '100px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                    
-                                    {/* زر كشف الإجابة (كلا النمطين) */}
-                                    {!isAnswerRevealed && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
-                                            <button className="control-btn" onClick={() => {AudioEngine.play('click'); setIsAnswerRevealed(true)}} style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '20px 60px', borderRadius: '16px', fontSize: '1.5rem' }}>
-                                                {hostMode === 'smart' ? 'كشف الإجابة (Space)' : 'كشف الإجابة للجمهور'}
-                                            </button>
-                                        </div>
-                                    )}
 
-                                    {isAnswerRevealed && (
-                                        <div className="anim-slide-up" style={{ background: '#fff', color: '#000', padding: '20px 70px', borderRadius: '16px', fontSize: hostMode === 'human' ? '5rem' : '3rem', fontWeight: '900', boxShadow: '0 20px 50px rgba(255,255,255,0.3)', letterSpacing: '1px', textAlign: 'center' }}>
+                                {/* Answer */}
+                                {currentAnswer && (
+                                    !isAnswerRevealed ? (
+                                        <button onClick={() => { AudioEngine.play('click'); setIsAnswerRevealed(true); }}
+                                            style={{ width:'100%', padding:'11px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.11)', color:'rgba(255,255,255,0.6)', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'0.9rem', cursor:'pointer', transition:'0.2s' }}
+                                            onMouseOver={e=>e.currentTarget.style.background='rgba(255,255,255,0.1)'}
+                                            onMouseOut={e=>e.currentTarget.style.background='rgba(255,255,255,0.05)'}>
+                                            👁 {hostMode==='smart'?'كشف الإجابة (Space)':'كشف الإجابة للجمهور'}
+                                        </button>
+                                    ) : (
+                                        <div style={{ background:'linear-gradient(135deg,rgba(124,58,237,0.2),rgba(99,102,241,0.14))', border:'1px solid rgba(124,58,237,0.38)', borderRadius:11, padding:'11px 16px', textAlign:'center', fontSize:'clamp(1.1rem,4vw,1.85rem)', fontWeight:900, color:'#c084fc', letterSpacing:1, animation:'slideUp 0.28s ease-out', boxShadow:'0 0 22px rgba(124,58,237,0.14)' }}>
                                             {currentAnswer}
                                         </div>
-                                    )}
-
-                                </div>
+                                    )
                                 )}
 
-                                {/* الذكاء الاصطناعي (AI Overlay Mode) */}
+                                {/* AI assist panel */}
                                 {(aiAssistState.isProcessing || aiAssistState.active) && (
-                                    <div className="anim-cinematic" style={{ width: '100%', maxWidth: '800px', margin: '0 auto 40px auto', background: 'rgba(5, 5, 10, 0.85)', border: '1px solid #3b82f6', borderRadius: '24px', padding: '30px', boxShadow: '0 0 40px rgba(59, 130, 246, 0.3), inset 0 0 20px rgba(59, 130, 246, 0.1)', backdropFilter: 'blur(15px)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid rgba(59, 130, 246, 0.3)', paddingBottom: '15px', marginBottom: '20px' }}>
-                                            <div style={{ width: '15px', height: '15px', background: '#3b82f6', borderRadius: '50%', animation: 'alertPulse 1.5s infinite' }}></div>
-                                            <div style={{ color: '#60a5fa', fontSize: '1.2rem', fontWeight: '900', letterSpacing: '2px', fontFamily: 'monospace' }}>HUROOF_ZONE_AI.exe</div>
-                                        </div>
-                                        
-                                        {aiAssistState.isProcessing && (
-                                            <div style={{ color: '#34d399', fontSize: '1.4rem', fontFamily: 'monospace', textShadow: '0 0 10px rgba(52, 211, 153, 0.5)', minHeight: '40px', lineHeight: '1.6' }}>
-                                                {aiAssistState.log}
-                                                <span style={{ animation: 'alertPulse 1s infinite' }}>_</span>
-                                            </div>
-                                        )}
-
-                                        {aiAssistState.active && (
-                                            <div className="anim-slide-up" style={{ textAlign: 'center', padding: '20px 0' }}>
-                                                <div style={{ color: '#94a3b8', fontSize: '1.2rem', marginBottom: '10px' }}>نتائج التحليل العميق:</div>
-                                                <div style={{ color: '#facc15', fontSize: '3rem', fontWeight: '900', letterSpacing: '8px', textShadow: '0 0 20px rgba(250, 204, 21, 0.6)' }}>
-                                                    {aiAssistState.hint}
-                                                </div>
-                                            </div>
-                                        )}
+                                    <div style={{ background:'rgba(59,130,246,0.1)', border:'1px solid rgba(59,130,246,0.33)', borderRadius:11, padding:'11px 14px' }}>
+                                        <div style={{ color:'#60a5fa', fontWeight:900, fontSize:'0.7rem', letterSpacing:'2px', marginBottom:5 }}>HUROOF AI</div>
+                                        {aiAssistState.isProcessing && <div style={{ color:'#34d399', fontFamily:'monospace', fontSize:'0.82rem' }}>{aiAssistState.log}<span style={{ animation:'alertPulse 0.8s infinite' }}>_</span></div>}
+                                        {aiAssistState.active && <div style={{ color:'#fbbf24', fontSize:'clamp(0.95rem,3vw,1.65rem)', fontWeight:900, letterSpacing:5, textAlign:'center' }}>{aiAssistState.hint}</div>}
                                     </div>
                                 )}
-                                
+
+                                {/* Action buttons */}
                                 {isOnlineGuest ? (
-                                  /* أزرار الضيف أون لاين — فريق 2 فقط */
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', alignItems: 'center', padding: '20px 0' }}>
-                                    <div style={{ color: team2Color, fontWeight: '900', fontSize: '1rem', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>
-                                      🌐 فريقك: {team2Name || 'الفريق الثاني'}
+                                    <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
+                                        <button onClick={() => { AudioEngine.play('correct'); sendGuestAction({type:'ONLINE_CORRECT'}); }} style={{ flex:1, minWidth:100, padding:'12px', background:team2Color, color:'#fff', border:'none', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'0.9rem', cursor:'pointer' }}>✔ صحيحة</button>
+                                        <button onClick={() => { AudioEngine.play('wrong'); sendGuestAction({type:'ONLINE_WRONG'}); }} style={{ flex:1, minWidth:85, padding:'12px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.38)', color:'#f87171', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'0.9rem', cursor:'pointer' }}>✗ خاطئة</button>
+                                        <button onClick={() => { AudioEngine.play('click'); sendGuestAction({type:'ONLINE_SKIP'}); }} style={{ flex:1, minWidth:72, padding:'12px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.09)', color:'rgba(255,255,255,0.33)', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'0.9rem', cursor:'pointer' }}>⏭</button>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '16px', width: '100%', maxWidth: '600px' }}>
-                                      <button className="control-btn" onClick={() => { AudioEngine.play('correct'); sendGuestAction({ type: 'ONLINE_CORRECT' }); }}
-                                        style={{ background: team2Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team2Color}55`, fontSize: '1.3rem' }}>
-                                        ✔️ إجابة صحيحة
-                                      </button>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '16px', width: '100%', maxWidth: '600px' }}>
-                                      <button className="control-btn" onClick={() => { AudioEngine.play('wrong'); sendGuestAction({ type: 'ONLINE_WRONG' }); }}
-                                        style={{ background: 'transparent', color: '#ef4444', border: '2px solid rgba(239,68,68,0.5)', flex: 1 }}>
-                                        ❌ إجابة خاطئة
-                                      </button>
-                                      <button className="control-btn" onClick={() => { AudioEngine.play('click'); sendGuestAction({ type: 'ONLINE_SKIP' }); }}
-                                        style={{ background: 'transparent', color: 'var(--text-secondary)', border: '2px solid rgba(255,255,255,0.15)', flex: 1 }}>
-                                        ⏭️ تخطي
-                                      </button>
-                                    </div>
-                                  </div>
                                 ) : hostMode === 'smart' ? (
-
-                                <>
-                                <div className="command-center" style={{
-                                    display: 'flex',
-                                    flexDirection: isMobile ? 'column' : 'row', 
-                                    alignItems: 'center',
-                                    gap: isMobile ? '20px' : '30px',
-                                    justifyContent: 'center',
-                                    width: '100%',
-                                    background: 'rgba(0,0,0,0.5)',
-                                    padding: isMobile ? '15px' : '30px',
-                                    borderRadius: '28px',
-                                    border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                    {/* أدوات الفريق الأول */}
-                                    <div style={{ textAlign: isMobile ? 'center' : 'right', width: isMobile ? '100%' : 'auto' }}>
-                                        <div style={{ color: team1Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team1Name || 'الفريق الأول'}</div>
-                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.ai_assist} onClick={() => useLifeline(1, 'ai_assist')} style={{background: team1Lifelines.ai_assist ? 'rgba(59, 130, 246, 0.2)' : '', borderColor: team1Lifelines.ai_assist ? '#3b82f6' : 'rgba(255,255,255,0.1)', color: team1Lifelines.ai_assist ? '#93c5fd' : ''}}>ذكاء حـروف 🧠</button>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.silence} onClick={() => useLifeline(1, 'silence')}>تسكيت الخصم</button>
-                                            <button className="pulse-btn" disabled={!team1Lifelines.changeQ} onClick={() => useLifeline(1, 'changeQ')}>استبدال</button>
+                                    <>
+                                        {/* Lifelines */}
+                                        <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                                            {[[1,team1Color,'ai_assist','🧠 ذكاء',team1Lifelines.ai_assist],[1,team1Color,'silence','🔇 تسكيت',team1Lifelines.silence],[1,team1Color,'changeQ','🔄 استبدال',team1Lifelines.changeQ],[2,team2Color,'changeQ','🔄 استبدال',team2Lifelines.changeQ],[2,team2Color,'silence','🔇 تسكيت',team2Lifelines.silence],[2,team2Color,'ai_assist','🧠 ذكاء',team2Lifelines.ai_assist]].map(([team,color,type,label,avail],i) => (
+                                                <button key={i} disabled={!avail} onClick={() => useLifeline(team,type)}
+                                                    style={{ flex:'1 1 auto', minWidth:62, padding:'6px 7px', borderRadius:8, fontFamily:'inherit', fontWeight:800, fontSize:'0.68rem', cursor:avail?'pointer':'not-allowed', border:'1px solid '+(avail?color+'48':'rgba(255,255,255,0.06)'), background:avail?color+'10':'rgba(255,255,255,0.02)', color:avail?color:'rgba(255,255,255,0.16)', opacity:avail?1:0.4, transition:'0.2s', textAlign:'center', lineHeight:1.3 }}>
+                                                    {label}<br/><span style={{ fontSize:'0.56rem', opacity:0.65 }}>{team===1?(team1Name||'ف1'):(team2Name||'ف2')}</span>
+                                                </button>
+                                            ))}
                                         </div>
-                                    </div>
-
-                                    {/* منطقة التايمر الدائري (SVG Ring) */}
-                                    <div style={{ textAlign: 'center', minWidth: isMobile ? '100%' : '200px', position: 'relative', cursor: 'pointer' }}
-                                         onClick={() => { AudioEngine.play('click'); setIsTimerRunning(!isTimerRunning); }}>
-                                        {(() => {
-                                            const r = 70;
-                                            const circ = 2 * Math.PI * r;
-                                            const pct = timeLeft / timerDuration;
-                                            const dashOffset = circ * (1 - pct);
-                                            const isCritical = timeLeft <= 10;
-                                            const ringColor = isCritical ? '#ef4444' : '#ffffff';
-                                            return (
-                                                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} className={isCritical ? 'timer-ring-critical' : ''}>
-                                                    <svg width={isMobile ? 130 : 170} height={isMobile ? 130 : 170} style={{ transform: 'rotate(-90deg)' }}>
-                                                        <circle cx={isMobile ? 65 : 85} cy={isMobile ? 65 : 85} r={isMobile ? 55 : r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
-                                                        <circle cx={isMobile ? 65 : 85} cy={isMobile ? 65 : 85} r={isMobile ? 55 : r} fill="none" stroke={ringColor} strokeWidth="8"
-                                                            strokeDasharray={isMobile ? (2 * Math.PI * 55).toFixed(1) : circ.toFixed(1)}
-                                                            strokeDashoffset={(isMobile ? (2 * Math.PI * 55) : circ) * (1 - pct)}
-                                                            strokeLinecap="round"
-                                                            style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease', filter: `drop-shadow(0 0 ${isCritical ? '12px' : '6px'} ${ringColor})` }}
-                                                        />
-                                                    </svg>
-                                                    <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                        <span style={{ fontSize: isMobile ? '2rem' : '2.8rem', fontWeight: '900', fontFamily: 'monospace', color: ringColor, lineHeight: 1 }}>
-                                                            {`${timeLeft < 10 ? '0' : ''}${timeLeft}`}
-                                                        </span>
-                                                        <span style={{ fontSize: '0.65rem', color: '#475569', letterSpacing: '1px', marginTop: '2px', textTransform: 'uppercase' }}>
-                                                            {isTimerRunning ? 'اضغط للإيقاف' : 'اضغط للتشغيل'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                    
-                                    {/* أدوات الفريق الثاني */}
-                                    <div style={{ textAlign: isMobile ? 'center' : 'left', width: isMobile ? '100%' : 'auto' }}>
-                                        <div style={{ color: team2Color, fontSize: '1.1rem', fontWeight: '900', marginBottom: '16px', textTransform: 'uppercase' }}>أدوات {team2Name || 'الفريق الثاني'}</div>
-                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-end' }}>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.changeQ} onClick={() => useLifeline(2, 'changeQ')}>استبدال</button>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.silence} onClick={() => useLifeline(2, 'silence')}>تسكيت الخصم</button>
-                                            <button className="pulse-btn" disabled={!team2Lifelines.ai_assist} onClick={() => useLifeline(2, 'ai_assist')} style={{background: team2Lifelines.ai_assist ? 'rgba(59, 130, 246, 0.2)' : '', borderColor: team2Lifelines.ai_assist ? '#3b82f6' : 'rgba(255,255,255,0.1)', color: team2Lifelines.ai_assist ? '#93c5fd' : ''}}>ذكاء حـروف 🧠</button>
+                                        {/* Score buttons */}
+                                        <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
+                                            <button onClick={() => handleAnswer(1)} style={{ flex:'1 1 110px', padding:'12px', background:team1Color, color:'#fff', border:'none', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'clamp(0.8rem,2.5vw,0.95rem)', cursor:'pointer', boxShadow:'0 5px 16px '+team1Color+'55' }}>✔ {team1Name||'الفريق الأول'}</button>
+                                            <button onClick={() => handleAnswer(2)} style={{ flex:'1 1 110px', padding:'12px', background:team2Color, color:'#fff', border:'none', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'clamp(0.8rem,2.5vw,0.95rem)', cursor:'pointer', boxShadow:'0 5px 16px '+team2Color+'55' }}>✔ {team2Name||'الفريق الثاني'}</button>
+                                            <button onClick={() => { AudioEngine.play('wrong'); setActiveCell(null); }} style={{ flex:'1 1 74px', padding:'12px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.34)', color:'#f87171', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'0.88rem', cursor:'pointer' }}>✗ خاطئة</button>
+                                            <button onClick={() => { AudioEngine.play('click'); setActiveCell(null); }} style={{ flex:'1 1 64px', padding:'12px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.3)', borderRadius:11, fontFamily:'inherit', fontWeight:900, fontSize:'0.88rem', cursor:'pointer' }}>⏭</button>
                                         </div>
-                                    </div>
-                                </div>
-                                
-                                <div style={{ display: 'flex', gap: '20px', width: '100%', marginBottom: '20px' }}>
-                                    <button className="control-btn" onClick={() => handleAnswer(1)} style={{ background: team1Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team1Color}55`, fontSize: '1.4rem' }}>
-                                        <CheckCircle2 className="inline-block" style={{marginLeft: '8px'}} size={24} /> إجابة صحيحة - {team1Name || 'الفريق الأول'}
-                                    </button>
-                                    <button className="control-btn" onClick={() => handleAnswer(2)} style={{ background: team2Color, color: '#fff', flex: 1, boxShadow: `0 15px 35px ${team2Color}55`, fontSize: '1.4rem' }}>
-                                        <CheckCircle2 className="inline-block" style={{marginLeft: '8px'}} size={24} /> إجابة صحيحة - {team2Name || 'الفريق الثاني'}
-                                    </button>
-                                </div>
-                                
-                                <div style={{ display: 'flex', gap: '20px', width: '100%' }}>
-                                    <button className="control-btn" onClick={() => {AudioEngine.play('wrong'); setActiveCell(null)}} style={{ background: 'transparent', color: '#ef4444', border: '2px solid rgba(239, 68, 68, 0.5)', flex: 1 }}>
-                                        <XOctagon className="inline-block" style={{marginLeft: '8px'}} size={24} /> إجابة خاطئة (X)
-                                    </button>
-                                    <button className="control-btn" onClick={() => {AudioEngine.play('click'); setActiveCell(null)}} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '2px solid rgba(255, 255, 255, 0.15)', flex: 1 }}>
-                                        <Play className="inline-block" style={{marginLeft: '8px'}} fill="currentColor" size={24} /> تخطي (▶)
-                                    </button>
-                                </div>
-                                </>
+                                    </>
                                 ) : (
-                                    <div style={{ textAlign: 'center', marginTop: '20px' }}>
-                                        <div 
-                                            onClick={() => { AudioEngine.play('click'); setIsTimerRunning(!isTimerRunning); }}
-                                            style={{ fontSize: '7rem', fontWeight: '900', color: (timeLeft <= 10 ? '#ef4444' : '#fff'), fontFamily: 'monospace', lineHeight: '1', cursor: 'pointer', animation: timeLeft <= 10 ? 'alertPulse 1s infinite' : 'none', textShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-                                            {`00:${timeLeft < 10 ? `0${timeLeft}` : timeLeft}`}
+                                    <div style={{ textAlign:'center', cursor:'pointer' }} onClick={() => { AudioEngine.play('click'); setIsTimerRunning(p=>!p); }}>
+                                        <div style={{ fontSize:'clamp(2.6rem,10vw,5rem)', fontWeight:900, color:_crit?'#ef4444':'#fff', fontFamily:'monospace', animation:_crit?'alertPulse 0.8s infinite':'none' }}>
+                                            {String(Math.floor(timeLeft/60)).padStart(2,'0')}:{String(timeLeft%60).padStart(2,'0')}
                                         </div>
-                                        <div className="progress-bg" style={{ marginTop: '15px', maxWidth: '400px', margin: '15px auto 0 auto' }}>
-                                            <div className="progress-fill" style={{ width: `${(timeLeft / timerDuration) * 100}%`, backgroundColor: timeLeft <= 10 ? '#ef4444' : '#10b981' }}></div>
+                                        <div style={{ height:5, background:'rgba(255,255,255,0.07)', borderRadius:3, marginTop:10, overflow:'hidden' }}>
+                                            <div style={{ height:'100%', width:(_pct*100)+'%', background:_crit?'#ef4444':'#7c3aed', transition:'width 1s linear', borderRadius:3 }}/>
                                         </div>
                                     </div>
                                 )}
-
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
-                    {/* Explosions */}
+                                        {/* Explosions */}
                     {explodedMine && (
                         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'radial-gradient(circle, rgba(239,68,68,0.9) 0%, rgba(10,0,0,1) 100%)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, backdropFilter: 'blur(40px)' }}>
                         <div style={{ fontSize: '12rem', textShadow: '0 0 150px red', fontWeight: '900', color: 'white', animation: 'alertPulse 0.2s infinite' }}>💥 كـارثـة! 💥</div>
@@ -2303,59 +2223,6 @@ function App() {
             <AdSenseWidget adSlot="2222222222" />
         </div>
 
-        {/* ================= زر ونافذة الدعم ================= */}
-        <button 
-            onClick={() => {AudioEngine.play('click'); setShowSupportModal(true);}}
-            style={{
-                position: 'fixed', bottom: '20px', left: '20px', 
-                background: 'linear-gradient(135deg, #4F008C, #8900E1)', 
-                color: '#fff', padding: '12px 25px', borderRadius: '30px', 
-                fontWeight: '900', fontSize: '1.2rem', border: 'none', 
-                cursor: 'pointer', boxShadow: '0 10px 25px rgba(79, 0, 140, 0.4)', 
-                zIndex: 9000, display: 'flex', alignItems: 'center', gap: '8px',
-                transition: 'transform 0.2s', fontFamily: 'inherit'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-            onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-        >
-            ☕ ادعمني
-        </button>
-
-        {showSupportModal && (
-            <div style={{
-                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
-                background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(15px)', 
-                display: 'flex', justifyContent: 'center', alignItems: 'center', 
-                zIndex: 10000, animation: 'cinematicFade 0.3s ease-out'
-            }} onClick={() => setShowSupportModal(false)}>
-                
-                <div style={{
-                    background: 'var(--panel-bg)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '24px', padding: '40px', maxWidth: '420px', width: '90%',
-                    textAlign: 'center', position: 'relative', boxShadow: '0 30px 60px rgba(0,0,0,0.8)',
-                    animation: 'popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-                }} onClick={(e) => e.stopPropagation()}>
-                    
-                    <button onClick={() => {AudioEngine.play('click'); setShowSupportModal(false);}} style={{
-                        position: 'absolute', top: '15px', right: '20px', background: 'transparent',
-                        border: 'none', color: '#a1a1aa', fontSize: '1.8rem', cursor: 'pointer', transition: '0.2s'
-                    }} onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'} onMouseOut={(e) => e.currentTarget.style.color = '#a1a1aa'}>
-                        ✖
-                    </button>
-
-                    <h2 style={{ color: '#fff', margin: '0 0 15px 0', fontSize: '2rem', fontWeight: '900' }}>
-                        عجبتك اللعبة؟ ☕
-                    </h2>
-                    <p style={{ color: '#a1a1aa', lineHeight: '1.6', marginBottom: '30px', fontSize: '1.1rem', fontWeight: '600' }}>
-                        اللعبة مجانية بالكامل، بس إذا ودك تدعم المطور عشان يستمر يطور ويضيف ميزات أكثر، امسح الكود بتطبيق <span style={{color: '#4F008C', fontWeight: '900', background: '#fff', padding: '2px 8px', borderRadius: '8px', display: 'inline-block', margin: '0 4px'}}>STC Pay</span> 🤍
-                    </p>
-
-                    <div style={{ background: '#fff', padding: '20px', borderRadius: '24px', display: 'inline-block', boxShadow: '0 15px 35px rgba(79, 0, 140, 0.3)' }}>
-                        <img src="/stcpay.jpg" alt="STC Pay QR Code" style={{ width: '220px', height: '220px', borderRadius: '12px', display: 'block' }} />
-                    </div>
-                </div>
-            </div>
-        )}
     </div>
   );
 };
